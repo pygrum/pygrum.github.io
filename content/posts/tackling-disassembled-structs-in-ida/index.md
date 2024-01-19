@@ -1,5 +1,5 @@
 +++
-title = 'Tackling Disassembled Structs in IDA - Malware Analysis'
+title = 'Tackling Disassembled Structs in IDA'
 date = 2024-01-18T23:29:54Z
 draft = false
 tags = ["Malware Analysis", "Reverse Engineering"]

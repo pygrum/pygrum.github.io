@@ -9,7 +9,7 @@
     <lastBuildDate>Thu, 18 Jan 2024 23:29:54 +0000</lastBuildDate>
     <atom:link href="https://pygrum.github.io/index.xml" rel="self" type="application/rss+xml" />
     <item>
-      <title>Tackling Disassembled Structs in IDA - Malware Analysis</title>
+      <title>Tackling Disassembled Structs in IDA</title>
       <link>https://pygrum.github.io/posts/tackling-disassembled-structs-in-ida/</link>
       <pubDate>Thu, 18 Jan 2024 23:29:54 +0000</pubDate>
       <guid>https://pygrum.github.io/posts/tackling-disassembled-structs-in-ida/</guid>
