@@ -18,6 +18,7 @@ palette = 'base16-dark'
 mode = 'dark'
 title = 'Pygrum'
 subtitle = 'Malware R&D, Reverse Engineering and Offensive Security'
+customcss = ["css/extended.css"]
 
 [[params.social]]
 name = 'GitHub'
