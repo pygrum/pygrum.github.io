@@ -1,0 +1,167 @@
+<!DOCTYPE html>
+<html><head lang="en">
+	<meta charset="utf-8" />
+	<meta http-equiv="X-UA-Compatible" content="IE=edge"><title>Tackling Disassembled Structs in IDA - Malware Analysis - Pygrum</title><meta name="viewport" content="width=device-width, initial-scale=1">
+	<meta name="description" content="Reverse engineering software is a lot of work. Personally, the hardest part is figuring out which areas are worth examining further. Looking in the wrong places can cause you to miss valuable information.
+One construct that can trip people up is struct representation in assembly. It can be unclear when a struct is being manipulated or accessed. After all, the struct is organised as a contiguous block of bytes, with each member residing sequentially in memory." />
+	<meta property="og:image" content=""/>
+	<meta property="og:title" content="Tackling Disassembled Structs in IDA - Malware Analysis" />
+<meta property="og:description" content="Reverse engineering software is a lot of work. Personally, the hardest part is figuring out which areas are worth examining further. Looking in the wrong places can cause you to miss valuable information.
+One construct that can trip people up is struct representation in assembly. It can be unclear when a struct is being manipulated or accessed. After all, the struct is organised as a contiguous block of bytes, with each member residing sequentially in memory." />
+<meta property="og:type" content="article" />
+<meta property="og:url" content="https://pygrum.github.io/posts/tackling-disassembly-structures/" /><meta property="article:section" content="posts" />
+<meta property="article:published_time" content="2024-01-18T23:29:54+00:00" />
+<meta property="article:modified_time" content="2024-01-18T23:29:54+00:00" /><meta property="og:site_name" content="Pygrum" />
+
+<meta name="twitter:card" content="summary"/><meta name="twitter:title" content="Tackling Disassembled Structs in IDA - Malware Analysis"/>
+<meta name="twitter:description" content="Reverse engineering software is a lot of work. Personally, the hardest part is figuring out which areas are worth examining further. Looking in the wrong places can cause you to miss valuable information.
+One construct that can trip people up is struct representation in assembly. It can be unclear when a struct is being manipulated or accessed. After all, the struct is organised as a contiguous block of bytes, with each member residing sequentially in memory."/>
+<script src="https://pygrum.github.iojs/feather.min.js"></script>
+	
+	
+        <link href="https://pygrum.github.io/css/fonts.2c2227b81b1970a03e760aa2e6121cd01f87c88586803cbb282aa224720a765f.css" rel="stylesheet">
+	
+
+	
+	<link rel="stylesheet" type="text/css" media="screen" href="https://pygrum.github.io/css/main.ab3fe22397da2d202e7f3a01d8b258edc794777fa8caa313250841b8337592e0.css" />
+		<link id="darkModeStyle" rel="stylesheet" type="text/css" href="https://pygrum.github.io/css/dark.726cd11ca6eb7c4f7d48eb420354f814e5c1b94281aaf8fd0511c1319f7f78a4.css"   />
+	
+
+	
+	
+
+	
+	
+	
+	
+</head>
+<body>
+        <div class="content"><header>
+	<div class="main">
+		<a href="https://pygrum.github.io">Pygrum</a>
+	</div>
+	<nav>
+		
+		<a href="/about/">About</a>
+		
+		<a href="/tags">Tags</a>
+		
+		<a href="/posts/">Posts</a>
+		
+		
+	</nav>
+</header>
+
+<main>
+	<article>
+		<div class="title">
+			<h1 class="title">Tackling Disassembled Structs in IDA - Malware Analysis</h1>
+			<div class="meta">Posted on Jan 18, 2024</div>
+		</div>
+		
+
+		<section class="body">
+			<p>Reverse engineering software is a lot of work. Personally, the hardest part is figuring out which areas are worth examining further. Looking in the wrong places can cause you to miss valuable information.</p>
+<p>One construct that can trip people up is struct representation in assembly. It can be unclear when a struct is being manipulated or accessed. After all, the struct is organised as a contiguous block of bytes, with each member residing sequentially in memory. Remembering this can actually be helpful to us.</p>
+<p><img src="images/example-struct.png" alt="example">
+<em>A look at how an example struct resides in memory</em></p>
+<p>When we find code that seems to access random offsets in memory, that&rsquo;s a good sign that a struct is being used. It is then up to us to figure out the dimensions of each field, and what they are being used for. Thankfully, it&rsquo;s easy to gain some practice doing this - by writing and disassembling our own code! We&rsquo;ll use the struct shown in the figure above in the program that we&rsquo;re going to reverse ourselves.</p>
+<h2 id="starting-from-scratch">Starting From Scratch</h2>
+<p>Let&rsquo;s start by writing a small C program that uses structs to store information. Afterwards, compile it and open the binary up in IDA to see what it looks like.</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-c" data-lang="c"><span style="display:flex;"><span><span style="color:#75715e">#include</span> <span style="color:#75715e">&lt;string.h&gt;</span><span style="color:#75715e">
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">#include</span> <span style="color:#75715e">&lt;stdio.h&gt;</span><span style="color:#75715e">
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">typedef</span> <span style="color:#66d9ef">struct</span> pii {
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">char</span> name[<span style="color:#ae81ff">10</span>];
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">int</span> age;
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">char</span> PAN[<span style="color:#ae81ff">17</span>]; <span style="color:#75715e">// We use a size of 17 to include the null terminator
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>} pii;
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">void</span> <span style="color:#a6e22e">init_pii</span>(pii<span style="color:#f92672">*</span> p_pii)
+</span></span><span style="display:flex;"><span>{
+</span></span><span style="display:flex;"><span>    <span style="color:#a6e22e">strcpy</span>(p_pii<span style="color:#f92672">-&gt;</span>name, <span style="color:#e6db74">&#34;bob&#34;</span>);
+</span></span><span style="display:flex;"><span>    p_pii<span style="color:#f92672">-&gt;</span>age <span style="color:#f92672">=</span> <span style="color:#ae81ff">20</span>;
+</span></span><span style="display:flex;"><span>    <span style="color:#a6e22e">strcpy</span>(p_pii<span style="color:#f92672">-&gt;</span>PAN, <span style="color:#e6db74">&#34;1234567890123456&#34;</span>);
+</span></span><span style="display:flex;"><span>}
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">int</span> <span style="color:#a6e22e">main</span>()
+</span></span><span style="display:flex;"><span>{
+</span></span><span style="display:flex;"><span>    pii bob_pii;
+</span></span><span style="display:flex;"><span>    <span style="color:#a6e22e">init_pii</span>(<span style="color:#f92672">&amp;</span>bob_pii);
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>    <span style="color:#a6e22e">printf</span>(<span style="color:#e6db74">&#34;Name: %s</span><span style="color:#ae81ff">\n</span><span style="color:#e6db74">Age: %d</span><span style="color:#ae81ff">\n</span><span style="color:#e6db74">PAN: %s</span><span style="color:#ae81ff">\n</span><span style="color:#e6db74">&#34;</span>, bob_pii.name, bob_pii.age, bob_pii.PAN);
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">return</span> <span style="color:#ae81ff">0</span>;
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><p>Here&rsquo;s a breakdown of what the program does if you&rsquo;re not familiar with C:</p>
+<ul>
+<li>The entrypoint is main. We initialise an empty <code>pii</code> struct, a type that we declared at the top of the file, containing fields of static length (10, 4, 17)</li>
+<li>We then pass that empty struct address to the <code>init_pii</code> function, which assigns values to each field</li>
+<li>Finally, we print the values that were assigned by <code>init_pii</code></li>
+</ul>
+<p>Remember that your binary won&rsquo;t contain the typedefs you declare, which is why we&rsquo;re tackling this issue in the first place.</p>
+<p>I&rsquo;ll compile this program (using <code>gcc</code> on Linux) and open it up in IDA.</p>
+<h2 id="surgical">Surgical</h2>
+<p><img src="images/ida-view-main.png" alt="main-ida"></p>
+<p>This looks like a lot. But remember to focus on the important parts.<br>
+We&rsquo;ll pretend that we are unaware of any struct declarations in this program. We&rsquo;ll go through the process of deducing these ourselves.</p>
+<p>One thing shown here that can be confusing is the declaration of multiple variables for what we know is one struct. It wouldn&rsquo;t be fatal to assume these were separate variables initially.<br>
+Another thing you may have noticed is the compile-time assertions that do stack safety checks. We can ignore those (they&rsquo;re just extra noise). Let&rsquo;s dive into the <code>init_pii</code> function early - we know that it&rsquo;s responsible for something important, because the program starts accessing values right after it has been called (this is the type of thought process we need to develop).</p>
+<p>It&rsquo;s important to mention that we usually won&rsquo;t have function names. For a more realistic scenario, strip the symbol table with <code>gcc</code>&rsquo;s <code>-s</code> option.</p>
+<p><img src="images/init_pii.png" alt="init-pii"><br>
+<em>Disassembly of init_pii</em></p>
+<p>Looks pretty complicated. Our <code>strcpy</code> calls were inlined too, which doesn&rsquo;t help at all! This is where the IDA decompiler / pseudocode view can help. It can actually recognise operations like <code>strcpy</code> and represent them in the pseudocode view.</p>
+<p><img src="images/pseudo-init-pii.png" alt="init-pii-pseudo"><br>
+<em>Pseudocode representation of init_pii</em></p>
+<p>Isn&rsquo;t that helpful? Granted, it didn&rsquo;t expand <em>everything</em>. But hopefully, we can work with what we have now.</p>
+<h2 id="creating-our-structure">Creating our structure</h2>
+<p><code>init_pii</code> almost looks like a serialisation routine, as it seems to be manipulating variable offsets. This is another telling sign of struct manipulation. We can see that (a1 + 12) to (a1 + 16) is where &lsquo;20&rsquo; is assigned (<code>age</code>, if you remember). We also see that the PAN is copied to a1 + 16 and onwards. We can use these details to start defining our custom struct in IDA.</p>
+<p>Open the structure subview and press the <code>Insert</code> key (or, right-click and press &lsquo;Add struct type&rsquo;).</p>
+<p><img src="images/struct-create.png" alt="creation"><br>
+<em>Give your struct a name, I&rsquo;ve named it personal_info</em></p>
+<p>While the struct is highlighted, press the <code>A</code> key to add a new string field for our &lsquo;unknown&rsquo; offset of a1 to (a1 + 11) (inclusive). We give it an array size of 12. Next, while <code>ends</code> is highlighted, add the <code>DWORD</code> &lsquo;age&rsquo; field by pressing the <code>D</code> key and cycling through the data types (by repeatedly pressing <code>D</code> while the new field is highlighted) until we get to <code>dd</code>, aka &lsquo;define double word&rsquo; (<code>DWORD</code>). Finally, highlighting <code>ends</code> again, add another string of size 17 to represent the PAN that was assigned by pressing <code>A</code>. Name your struct fields by pressing <code>N</code> while they are highlighted.</p>
+<p>Your struct should end up looking something like this:</p>
+<p><img src="images/struct.png" alt="final"></p>
+<p>Now we can convert a1 by right-clicking -&gt; &lsquo;convert to struct*&rsquo;, and selecting the struct you defined.</p>
+<p><img src="images/readable.png" alt="readable"></p>
+<p>Much better. Now although we still see unknown as a number, we can try to convert it to character representation by highlighting the number and pressing <code>R</code>. We know to do this because before the call to <code>printf</code>, a1 / <code>var_30</code> is passed to <code>rsi</code>, which is printed in string format. Although it usually isn&rsquo;t this easy to figure out, getting clues from the context and usage of offsets is equally as important.</p>
+<p><img src="images/bob.png" alt="bob"></p>
+<p>Now, select <code>var_30</code> (or whatever variable is used as the struct) and hit <code>Ctrl+K</code> to open it in the stack frame view. Right-click and select &lsquo;struct var&rsquo;, then choose the struct you defined. Now go back to the main function view, and hit F5 (or <code>Fn+F5</code>) to view <code>main</code> as pseudocode.</p>
+<p><img src="images/main-deobf.png" alt="main"></p>
+<p>Now that&rsquo;s (almost) completely readable!</p>
+<h2 id="conclusion">Conclusion</h2>
+<p>I hope this post taught you a thing or two about deobfuscating disassembled code to make the reverse engineering process easier. These techniques are easily applied to malware analysis, vulnerability research, or any sort of tampering.</p>
+
+		</section>
+
+		<div class="post-tags">
+			
+			
+			<nav class="nav tags">
+				<ul class="tags">
+					
+					<li><a href="/tags/malware-analysis">Malware Analysis</a></li>
+					
+					<li><a href="/tags/reverse-engineering">Reverse Engineering</a></li>
+					
+				</ul>
+			</nav>
+			
+			
+		</div>
+		</article>
+</main>
+<footer>
+  <div style="display:flex"><a class="soc" href="https://github.com/pygrum" rel="me" title="GitHub"><i data-feather="github"></i></a>
+    <a class="border"></a></div>
+  <div class="footer-info">
+    2024  <a
+      href="https://github.com/athul/archie">Archie Theme</a> | Built with <a href="https://gohugo.io">Hugo</a>
+  </div>
+</footer>
+
+
+<script>
+  feather.replace()
+</script></div>
+    </body>
+</html>
