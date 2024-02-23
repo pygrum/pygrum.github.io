@@ -1,13 +1,16 @@
-baseURL = 'https://pygrum.github.io'
+baseURL = 'https://pygrum.github.io/'
 languageCode = 'en-us'
 title = 'Pygrum'
 theme = 'archie'
+copyright = "© Pygrum"
 author = 'Pygrum'
 publishdir = 'docs'
 # Code Highlight
 pygmentsstyle = "monokai"
 pygmentscodefences = true
 pygmentscodefencesguesssyntax = true
+
+disqusShortname = "pygrum-security"
 
 paginate = 5
 
@@ -17,6 +20,7 @@ palette = 'base16-dark'
 [params]
 mode = 'dark'
 title = 'Pygrum'
+useCDN = false
 subtitle = 'Malware R&D, Reverse Engineering and Offensive Security'
 customcss = ["css/extended.css"]
 
