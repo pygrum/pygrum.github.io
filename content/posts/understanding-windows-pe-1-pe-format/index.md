@@ -23,7 +23,6 @@ By the end of this, we should be able to extract:
 - Information about each section:
 	- Name
 	- Size
-- All linked DLLs and their imports.
 
 This article assumes that you are familiar with C/C++.
 
