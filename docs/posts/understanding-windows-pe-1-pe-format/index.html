@@ -1,0 +1,377 @@
+<!DOCTYPE html>
+<html><head lang="en">
+	<meta charset="utf-8" />
+	<meta http-equiv="X-UA-Compatible" content="IE=edge"><title>Understanding the Windows Portable Executable, Part 1 - PE Format - Pygrum</title><meta name="viewport" content="width=device-width, initial-scale=1">
+	<meta name="description" content="Introduction This series aims to demonstrate how create tools based on your own research. To fully grasp how to work with Windows PEs, for use in malware development and analysis, we&rsquo;re only using documentation from Microsoft. This approach helps me personally when it comes to developing new research, acquiring a well-rounded understanding of a topic, and improves my creativity. Hopefully it helps you too.
+By the end of this article, we will have written a tool in C that extracts basic information from a given Windows PE." />
+	<meta property="og:image" content=""/>
+	<meta property="og:title" content="Understanding the Windows Portable Executable, Part 1 - PE Format" />
+<meta property="og:description" content="Introduction This series aims to demonstrate how create tools based on your own research. To fully grasp how to work with Windows PEs, for use in malware development and analysis, we&rsquo;re only using documentation from Microsoft. This approach helps me personally when it comes to developing new research, acquiring a well-rounded understanding of a topic, and improves my creativity. Hopefully it helps you too.
+By the end of this article, we will have written a tool in C that extracts basic information from a given Windows PE." />
+<meta property="og:type" content="article" />
+<meta property="og:url" content="https://pygrum.github.io/posts/understanding-windows-pe-1-pe-format/" /><meta property="article:section" content="posts" />
+<meta property="article:published_time" content="2024-02-27T18:47:18+00:00" />
+<meta property="article:modified_time" content="2024-02-27T18:47:18+00:00" /><meta property="og:site_name" content="Pygrum" />
+
+<meta name="twitter:card" content="summary"/><meta name="twitter:title" content="Understanding the Windows Portable Executable, Part 1 - PE Format"/>
+<meta name="twitter:description" content="Introduction This series aims to demonstrate how create tools based on your own research. To fully grasp how to work with Windows PEs, for use in malware development and analysis, we&rsquo;re only using documentation from Microsoft. This approach helps me personally when it comes to developing new research, acquiring a well-rounded understanding of a topic, and improves my creativity. Hopefully it helps you too.
+By the end of this article, we will have written a tool in C that extracts basic information from a given Windows PE."/>
+<script src="https://pygrum.github.io/js/feather.min.js"></script>
+	
+	
+        <link href="https://pygrum.github.io/css/fonts.2c2227b81b1970a03e760aa2e6121cd01f87c88586803cbb282aa224720a765f.css" rel="stylesheet">
+	
+
+	
+	<link rel="stylesheet" type="text/css" media="screen" href="https://pygrum.github.io/css/main.9c40cac2f9d1ada2d69a950e08f0523bb5bb23371ce7e8b3d157b2178d74abe6.css" />
+		<link id="darkModeStyle" rel="stylesheet" type="text/css" href="https://pygrum.github.io/css/dark.726cd11ca6eb7c4f7d48eb420354f814e5c1b94281aaf8fd0511c1319f7f78a4.css"   />
+	
+
+	
+	
+
+	
+	
+	
+	
+		
+		
+		<link rel="stylesheet" type="text/css" href="https://pygrum.github.io/css/extended.47c16d04bef5a8ac0e64f9b08e1d6f6f8a429b1d07716e3c0984ca36a2671bc1.css">
+		
+	<link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png">
+	<link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png">
+	<link rel="icon" type="image/png" sizes="16x16" href="/favicon-16x16.png">
+	<link rel="manifest" href="/site.webmanifest">
+	<link rel="mask-icon" href="/safari-pinned-tab.svg" color="#5bbad5">
+	<meta name="msapplication-TileColor" content="#da532c">
+	<meta name="theme-color" content="#ffffff">	
+</head>
+<body>
+        <div class="content"><header>
+	<div class="main">
+		<a href="https://pygrum.github.io/">Pygrum</a>
+	</div>
+	<nav>
+		
+		<a href="/about/">About</a>
+		
+		<a href="/tags">Tags</a>
+		
+		<a href="/posts/">Posts</a>
+		
+		
+	</nav>
+</header>
+
+<main>
+	<article>
+		<div class="title">
+			<h1 class="title">Understanding the Windows Portable Executable, Part 1 - PE Format</h1>
+			<div class="meta">Posted on Feb 27, 2024</div>
+		</div>
+		
+
+		<section class="body">
+			<h2 id="introduction">Introduction</h2>
+<p>This series aims to demonstrate how create tools based on your own research. To fully grasp how to work with Windows PEs, for use in malware development and analysis, we&rsquo;re only using documentation from Microsoft. This approach helps me personally when it comes to developing new research, acquiring a well-rounded understanding of a topic, and improves my creativity. Hopefully it helps you too.</p>
+<p>By the end of this article, we will have written a tool in C that extracts basic information from a given Windows PE.</p>
+<p>All sources are under the &lsquo;references&rsquo; heading at the end of this article.</p>
+<p>I highly recommend reading <a href="https://learn.microsoft.com/en-us/archive/msdn-magazine/2002/february/inside-windows-win32-portable-executable-file-format-in-detail">this</a> article, as not only does this post use it as a reference, but it provides a short history on the Windows PE file format.</p>
+<h2 id="the-windows-portable-executable">The Windows Portable Executable</h2>
+<p>In short, the Windows PE is a file format for executables, as well as a couple other file types. This file has a specific structure that tells Windows how to load it, where to load it, and how to execute it. You can also gather some information about the file by parsing it manually, which is what we&rsquo;ll do in this article.</p>
+<p>By the end of this, we should be able to extract:</p>
+<ul>
+<li>The file signature (to validate whether it is a PE or not)</li>
+<li>Whether the PE is 64-bit or not</li>
+<li>The compile time</li>
+<li>Information about each section:
+<ul>
+<li>Name</li>
+<li>Size</li>
+</ul>
+</li>
+<li>All linked DLLs and their imports.</li>
+</ul>
+<p>This article assumes that you are familiar with C/C++.</p>
+<h2 id="reading-the-pe-into-memory">Reading the PE into memory</h2>
+<p>We want to start by retrieving the PE headers. I mentioned that this is being done in a malware development context. So, we&rsquo;ll be doing this in a dedicated function, from a buffer containing a PE. in a real life scenario, we wouldn&rsquo;t want our payload touching disk at all, would we? ;)</p>
+<p>There are some structures defined in <code>winnt.h</code> that we use for this purpose. All portable executables start with a DOS header. So we&rsquo;ll make our program load a provided file into memory, and extract the DOS header from the buffer it resides in.</p>
+<p>We start by reading our file into memory.</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-c" data-lang="c"><span style="display:flex;"><span><span style="color:#66d9ef">int</span> <span style="color:#a6e22e">main</span>(<span style="color:#66d9ef">int</span> argc, <span style="color:#66d9ef">char</span><span style="color:#f92672">**</span> argv)
+</span></span><span style="display:flex;"><span>{
+</span></span><span style="display:flex;"><span>	HANDLE hFile;
+</span></span><span style="display:flex;"><span>	HANDLE hProcHeap;
+</span></span><span style="display:flex;"><span>	CHAR<span style="color:#f92672">*</span> pFileBuf;
+</span></span><span style="display:flex;"><span>	BOOL status;
+</span></span><span style="display:flex;"><span>	DWORD dwFileSize, dwBytesRead;
+</span></span><span style="display:flex;"><span>	DWORD ldrStatus;
+</span></span><span style="display:flex;"><span>	PPE_CONTEXT pContext <span style="color:#f92672">=</span> NULL;
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>	<span style="color:#66d9ef">if</span> (argc <span style="color:#f92672">&lt;</span> <span style="color:#ae81ff">2</span>)
+</span></span><span style="display:flex;"><span>	{
+</span></span><span style="display:flex;"><span>		<span style="color:#a6e22e">printf</span>(
+</span></span><span style="display:flex;"><span>			<span style="color:#e6db74">&#34;A tool for loading portable executables into memory and extracting information from them.</span><span style="color:#ae81ff">\n\n</span><span style="color:#e6db74">&#34;</span>
+</span></span><span style="display:flex;"><span>			<span style="color:#e6db74">&#34;Usage: %s PE</span><span style="color:#ae81ff">\n\n</span><span style="color:#e6db74">&#34;</span>
+</span></span><span style="display:flex;"><span>			<span style="color:#e6db74">&#34;Args:</span><span style="color:#ae81ff">\n</span><span style="color:#e6db74">&#34;</span>
+</span></span><span style="display:flex;"><span>			<span style="color:#e6db74">&#34;    PE: The path to the PE to load</span><span style="color:#ae81ff">\n</span><span style="color:#e6db74">&#34;</span>,
+</span></span><span style="display:flex;"><span>			argv[<span style="color:#ae81ff">0</span>]
+</span></span><span style="display:flex;"><span>		);
+</span></span><span style="display:flex;"><span>		<span style="color:#66d9ef">return</span> <span style="color:#ae81ff">1</span>;
+</span></span><span style="display:flex;"><span>	}
+</span></span><span style="display:flex;"><span>	hFile <span style="color:#f92672">=</span> <span style="color:#a6e22e">CreateFileA</span>(argv[<span style="color:#ae81ff">1</span>], GENERIC_READ <span style="color:#f92672">|</span> GENERIC_WRITE, <span style="color:#ae81ff">0</span>, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, (HANDLE)NULL);
+</span></span><span style="display:flex;"><span>	<span style="color:#66d9ef">if</span> (hFile <span style="color:#f92672">==</span> INVALID_HANDLE_VALUE)
+</span></span><span style="display:flex;"><span>	{
+</span></span><span style="display:flex;"><span>		<span style="color:#a6e22e">printf</span>(<span style="color:#e6db74">&#34;CreateFile failed (%d)</span><span style="color:#ae81ff">\n</span><span style="color:#e6db74">&#34;</span>, <span style="color:#a6e22e">GetLastError</span>());
+</span></span><span style="display:flex;"><span>		<span style="color:#66d9ef">return</span> <span style="color:#ae81ff">1</span>;
+</span></span><span style="display:flex;"><span>	}
+</span></span><span style="display:flex;"><span>	dwFileSize <span style="color:#f92672">=</span> <span style="color:#a6e22e">GetFileSize</span>(hFile, (LPDWORD)NULL);
+</span></span><span style="display:flex;"><span>	hProcHeap <span style="color:#f92672">=</span> <span style="color:#a6e22e">GetProcessHeap</span>();
+</span></span><span style="display:flex;"><span>	pFileBuf <span style="color:#f92672">=</span> (CHAR<span style="color:#f92672">*</span>)<span style="color:#a6e22e">HeapAlloc</span>(hProcHeap, HEAP_ZERO_MEMORY, dwFileSize);
+</span></span><span style="display:flex;"><span>	<span style="color:#66d9ef">if</span> (<span style="color:#f92672">!</span>pFileBuf)
+</span></span><span style="display:flex;"><span>	{
+</span></span><span style="display:flex;"><span>		<span style="color:#a6e22e">printf</span>(<span style="color:#e6db74">&#34;HeapAlloc failed (%d)</span><span style="color:#ae81ff">\n</span><span style="color:#e6db74">&#34;</span>, <span style="color:#a6e22e">GetLastError</span>());
+</span></span><span style="display:flex;"><span>		<span style="color:#66d9ef">return</span> <span style="color:#ae81ff">1</span>;
+</span></span><span style="display:flex;"><span>	}
+</span></span><span style="display:flex;"><span>	status <span style="color:#f92672">=</span> <span style="color:#a6e22e">ReadFile</span>(hFile, (LPVOID)pFileBuf, dwFileSize, <span style="color:#f92672">&amp;</span>dwBytesRead, (LPOVERLAPPED)NULL);
+</span></span><span style="display:flex;"><span>	<span style="color:#66d9ef">if</span> (<span style="color:#f92672">!</span>status)
+</span></span><span style="display:flex;"><span>	{
+</span></span><span style="display:flex;"><span>		<span style="color:#a6e22e">printf</span>(<span style="color:#e6db74">&#34;ReadFile failed (%d)</span><span style="color:#ae81ff">\n</span><span style="color:#e6db74">&#34;</span>, <span style="color:#a6e22e">GetLastError</span>());
+</span></span><span style="display:flex;"><span>		<span style="color:#a6e22e">HeapFree</span>(hProcHeap, <span style="color:#ae81ff">0</span>, (LPVOID)pFileBuf);
+</span></span><span style="display:flex;"><span>		<span style="color:#66d9ef">return</span> <span style="color:#ae81ff">1</span>;
+</span></span><span style="display:flex;"><span>	}
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><p>Simple enough, right?
+The steps are:</p>
+<ul>
+<li>Get handle to our file (<code>CreateFile</code>)</li>
+<li>Calculate size of file (<code>GetFileSize</code>)</li>
+<li>Allocate memory for our file (<code>GetProcessHeap</code>, <code>HeapAlloc</code>)</li>
+<li>Read our file into the buffer (<code>ReadFile</code>)</li>
+</ul>
+<p>Things you may not be used to:</p>
+<ul>
+<li>HANDLE: A representation of an object, used by WinAPI. It&rsquo;s just a void pointer.</li>
+<li>Why use <code>GetProcessHeap</code> and <code>HeapAlloc</code> instead of <code>malloc</code>? Windows &lsquo;heap&rsquo; functions are module independent. By allowing you to specify which heap to allocate memory on, you can pass across
+pointers to dynamically allocated blocks of memory without having to worry about memory corruption. I actually don&rsquo;t need to use it at all here, but for this reason, it can be seen as good practice for more complex projects. TL;DR: idk</li>
+</ul>
+<h2 id="parsing-pe-headers">Parsing PE Headers</h2>
+<p>For this, I&rsquo;d personally like to define some neat structs for quick access to different parts of the PE. This struct will hold the fields that I&rsquo;m extracting for this exercise, as well as useful file offsets (in case we wanted to access parts of the PE later without having to re-parse it).</p>
+<p>We define structures for useful information in our PE parser header file, <code>peparse.h</code>:</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-c" data-lang="c"><span style="display:flex;"><span><span style="color:#75715e">#include</span> <span style="color:#75715e">&lt;Windows.h&gt;</span><span style="color:#75715e">
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">typedef</span> <span style="color:#66d9ef">struct</span> _PE_SECTION_CONTEXT {
+</span></span><span style="display:flex;"><span>	LPCSTR szName;
+</span></span><span style="display:flex;"><span>	DWORD dwSize;
+</span></span><span style="display:flex;"><span>	PPE_SECTION_CONTEXT Next;
+</span></span><span style="display:flex;"><span>} PE_SECTION_CONTEXT, <span style="color:#f92672">*</span> PPE_SECTION_CONTEXT;
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">typedef</span> <span style="color:#66d9ef">struct</span> _PE_CONTEXT {
+</span></span><span style="display:flex;"><span>	BOOL isX64;
+</span></span><span style="display:flex;"><span>	HANDLE hHeap;
+</span></span><span style="display:flex;"><span>	LPVOID pImageBase;
+</span></span><span style="display:flex;"><span>	PIMAGE_DOS_HEADER pDosHeader;
+</span></span><span style="display:flex;"><span>	PIMAGE_FILE_HEADER pFileHeader;
+</span></span><span style="display:flex;"><span>	DWORD CompileTime;
+</span></span><span style="display:flex;"><span>	WORD SectionCount;
+</span></span><span style="display:flex;"><span>	PPE_SECTION_CONTEXT SectionCtxList;
+</span></span><span style="display:flex;"><span>} PE_CONTEXT, <span style="color:#f92672">*</span>PPE_CONTEXT;
+</span></span></code></pre></div><p>We store information about each section in a linked list <code>SectionCtxList</code>. We also have a field for a handle to the heap used to allocate memory for the <code>PE_CONTEXT</code> structure, which we&rsquo;ll make use of when it&rsquo;s time to free this memory.</p>
+<p>Next, we define the two functions we will need to parse the headers.</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-c" data-lang="c"><span style="display:flex;"><span><span style="color:#75715e">// ParsePEFromBuffer parses a PE file&#39;s information into a PE_CONTEXT structure.
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">// If unsuccessful, if returns a non-zero value. Use PEGetLastError() to get error information.
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>DWORD <span style="color:#a6e22e">PEParseFromBuffer</span>(LPVOID lpBuffer, PPE_CONTEXT pCtx);
+</span></span><span style="display:flex;"><span>DWORD <span style="color:#a6e22e">PEFreeCtx</span>(PPE_CONTEXT pCtx);
+</span></span></code></pre></div><p>Finally, I&rsquo;ll define some generic status codes that these functions will return.</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-c" data-lang="c"><span style="display:flex;"><span><span style="color:#75715e">#define PE_SUCCESS 0
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">#define PE_INVALID_PE 1
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">#define PE_CTX_ALLOC_FAILED 2
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">#define PE_CTX_FREE_FAILED 3
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">#define PE_SECTION_CTX_ALLOC_FAILED 4
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">#define PE_SECTION_CTX_FREE_FAILED 5
+</span></span></span></code></pre></div><h2 id="peparsefrombuffer">PEParseFromBuffer</h2>
+<p>I will do my best to explain the key steps taken while defining this function.
+Firstly, we want it to be called by passing a pointer to a (null) PE_CONTEXT struct pointer, making us responsible for allocation as well as its release. This is why we keep a reference to the heap that the structure was allocated on within the structure itself.</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-c" data-lang="c"><span style="display:flex;"><span><span style="color:#75715e">#include</span> <span style="color:#75715e">&lt;stdio.h&gt;</span><span style="color:#75715e">
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>
+</span></span><span style="display:flex;"><span><span style="color:#75715e">#include</span> <span style="color:#75715e">&#34;peparse.h&#34;</span><span style="color:#75715e">
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>
+</span></span><span style="display:flex;"><span>DWORD <span style="color:#a6e22e">PEParseFromBuffer</span>(LPVOID lpBuffer, PPE_CONTEXT<span style="color:#f92672">*</span> Ctx)
+</span></span><span style="display:flex;"><span>{
+</span></span><span style="display:flex;"><span>	HANDLE hHeap;
+</span></span><span style="display:flex;"><span>	PIMAGE_NT_HEADERS pNtHeaders;
+</span></span><span style="display:flex;"><span>	WORD wSectionCount;
+</span></span><span style="display:flex;"><span>	LPVOID pSection;
+</span></span><span style="display:flex;"><span>	PPE_SECTION_CONTEXT pLastSectionCtx <span style="color:#f92672">=</span> NULL;
+</span></span><span style="display:flex;"><span>	PPE_CONTEXT pCtx;
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>	hHeap <span style="color:#f92672">=</span> <span style="color:#a6e22e">GetProcessHeap</span>();
+</span></span><span style="display:flex;"><span>	pCtx <span style="color:#f92672">=</span> (PPE_CONTEXT)<span style="color:#a6e22e">HeapAlloc</span>(hHeap, HEAP_ZERO_MEMORY, <span style="color:#66d9ef">sizeof</span>(PE_CONTEXT));
+</span></span><span style="display:flex;"><span>	<span style="color:#66d9ef">if</span> (<span style="color:#f92672">!</span>pCtx)
+</span></span><span style="display:flex;"><span>		<span style="color:#66d9ef">return</span> PE_CTX_ALLOC_FAILED;
+</span></span><span style="display:flex;"><span>	<span style="color:#f92672">*</span>Ctx <span style="color:#f92672">=</span> pCtx;
+</span></span><span style="display:flex;"><span>	pCtx<span style="color:#f92672">-&gt;</span>hHeap <span style="color:#f92672">=</span> hHeap;
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><p>Now is the time we make use of Microsoft documentation. Take a look at <a href="https://learn.microsoft.com/en-us/windows/win32/debug/pe-format#overview">this</a>. Here, we are given an overview of the PE format, which starts with the MS-DOS EXE header. The C structure that represents this header is defined as <code>IMAGE_DOS_HEADER</code>, which can be found in <code>winnt.h</code>. So, we can directly <a href="https://www.i-programmer.info/programming/111-cc/12124-fundamental-c-pointers-cast-a-type-punning.html?start=2">type cast</a> The start of the buffer to a pointer to <code>IMAGE_DOS_HEADER</code>. To verify that this works, we can access the magic signature field within the struct to verify that it matches the MS-DOS signature (<code>IMAGE_DOS_SIGNATURE</code>, literal value of <code>0x5A4D</code> (<code>MZ</code>)).</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-c" data-lang="c"><span style="display:flex;"><span>pCtx<span style="color:#f92672">-&gt;</span>pImageBase <span style="color:#f92672">=</span> lpBuffer;
+</span></span><span style="display:flex;"><span>pCtx<span style="color:#f92672">-&gt;</span>pDosHeader <span style="color:#f92672">=</span> (PIMAGE_DOS_HEADER)lpBuffer;
+</span></span><span style="display:flex;"><span><span style="color:#75715e">// Validate magic bytes
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span><span style="color:#66d9ef">if</span> (pCtx<span style="color:#f92672">-&gt;</span>pDosHeader<span style="color:#f92672">-&gt;</span>e_magic <span style="color:#f92672">!=</span> IMAGE_DOS_SIGNATURE)
+</span></span><span style="display:flex;"><span>{
+</span></span><span style="display:flex;"><span>	<span style="color:#a6e22e">HeapFree</span>(hHeap, <span style="color:#ae81ff">0</span>, pCtx);
+</span></span><span style="display:flex;"><span>	<span style="color:#66d9ef">return</span> PE_INVALID_PE;
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><p>Our function will now return status code <code>1</code> if the provided file is not a valid PE.</p>
+<p>To get the rest of our headers, we need to locate the image signature. This is because the PE header itself follows directly after the signature.<br>
+We see that within the DOS stub, there is an <a href="https://learn.microsoft.com/en-us/windows/win32/debug/pe-format#overview:~:text=At%20location%200x3c%2C%20the%20stub%20has%20the%20file%20offset%20to%20the%20PE%20signature.%20This%20information%20enables%20Windows%20to%20properly%20execute%20the%20image%20file%2C%20even%20though%20it%20has%20an%20MS%2DDOS%20stub.%20This%20file%20offset%20is%20placed%20at%20location%200x3c%20during%20linking.">offset</a> to the signature located at an offset of 0x3c from the image base. We can use this to calculate the address of the PE header. Thankfully, within the DOS header structure, the signature offset is given its own field, named <code>e_lfanew</code>. If you want to verify manually, compare the address at <code>pImageBase + 0x3c</code> and <code>pDosHeader-&gt;e_lfanew</code>. They are the same.</p>
+<p>The signature and PE header are represented by a struct defined in <code>winnt.h</code>, called <code>IMAGE_NT_HEADERS</code> (there are actually two versions: a 32bit and 64bit version, however, it doesn&rsquo;t affect our exercise). We can directly cast the offset to the signature as this type.</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-c" data-lang="c"><span style="display:flex;"><span>pNtHeaders <span style="color:#f92672">=</span> (PIMAGE_NT_HEADERS)((CHAR<span style="color:#f92672">*</span>)lpBuffer <span style="color:#f92672">+</span> pCtx<span style="color:#f92672">-&gt;</span>pDosHeader<span style="color:#f92672">-&gt;</span>e_lfanew);
+</span></span><span style="display:flex;"><span><span style="color:#75715e">// Validate NT signature to check if valid PE
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span><span style="color:#66d9ef">if</span> (pNtHeaders<span style="color:#f92672">-&gt;</span>Signature <span style="color:#f92672">!=</span> IMAGE_NT_SIGNATURE)
+</span></span><span style="display:flex;"><span>{
+</span></span><span style="display:flex;"><span>	<span style="color:#a6e22e">HeapFree</span>(hHeap, <span style="color:#ae81ff">0</span>, pCtx);
+</span></span><span style="display:flex;"><span>	<span style="color:#66d9ef">return</span> PE_INVALID_PE;
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><p>Notice all that type casting. Well, <code>lpBuffer</code> is a void pointer, and our calculation needs a concrete type. We cast <code>lpBuffer</code> as a char pointer so that <code>e_lfanew</code> is interpreted as an offset in bytes, which it is. If we used <code>DWORD*</code> here, we&rsquo;d actually be adding <code>e_lfanew * sizeof(DWORD)</code>, which isn&rsquo;t right.</p>
+<p>Now we have our PE header, and validated the PE signature. We can finally begin extracting useful data.</p>
+<h3 id="general-information">General Information</h3>
+<p>The first thing we can extract is whether the image is 64 bit or not. We do this by accessing the <code>Machine</code> field of the image file header. The image file header can be retrieved from the <code>FileHeader</code> field in <code>pNtHeaders</code>. The <a href="https://learn.microsoft.com/en-us/windows/win32/debug/pe-format#overview:~:text=Machine-,The%20number%20that%20identifies%20the%20type%20of%20target%20machine.%20For%20more%20information%2C%20see%20Machine%20Types.,-2">Machine field</a> tells us the machine / CPU type for compatibility. In this exercise, we&rsquo;re only going to compare it with the <code>amd64</code> (<code>x86_64</code>) type code to determine whether or not the image is 64 bit.</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-c" data-lang="c"><span style="display:flex;"><span>pCtx<span style="color:#f92672">-&gt;</span>pFileHeader <span style="color:#f92672">=</span> <span style="color:#f92672">&amp;</span>pNtHeaders<span style="color:#f92672">-&gt;</span>FileHeader;
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">if</span> (pCtx<span style="color:#f92672">-&gt;</span>pFileHeader<span style="color:#f92672">-&gt;</span>Machine <span style="color:#f92672">==</span> IMAGE_FILE_MACHINE_AMD64)
+</span></span><span style="display:flex;"><span>	pCtx<span style="color:#f92672">-&gt;</span>isX64 <span style="color:#f92672">=</span> TRUE;
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">else</span>
+</span></span><span style="display:flex;"><span>	pCtx<span style="color:#f92672">-&gt;</span>isX64 <span style="color:#f92672">=</span> FALSE;
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>pCtx<span style="color:#f92672">-&gt;</span>CompileTime <span style="color:#f92672">=</span> pCtx<span style="color:#f92672">-&gt;</span>pFileHeader<span style="color:#f92672">-&gt;</span>TimeDateStamp;
+</span></span></code></pre></div><p>Easy! From there, it was trivial to extract the compile time (<code>TimeDateStamp</code>).</p>
+<h3 id="pe-sections">PE Sections</h3>
+<p>We now need to parse all section headers, allocate memory for each section context, and store them in a linked list. Let&rsquo;s start by finding where the section table begins.
+Once again, we refer to the <a href="https://learn.microsoft.com/en-us/windows/win32/debug/pe-format#overview:~:text=Each%20row%20of%20the%20section%20table%20is%2C%20in%20effect%2C%20a%20section%20header.%20This%20table%20immediately%20follows%20the%20optional%20header%2C%20if%20any">documentation</a>. We learn that the section table follows immediately after the optional header. We have the address of the optional header, and its size (stored in the file header). We retrieve the number of sections and our first section header like so:</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-c" data-lang="c"><span style="display:flex;"><span><span style="color:#75715e">// Parse headers
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>pCtx<span style="color:#f92672">-&gt;</span>SectionCount <span style="color:#f92672">=</span> pCtx<span style="color:#f92672">-&gt;</span>pFileHeader<span style="color:#f92672">-&gt;</span>NumberOfSections;
+</span></span><span style="display:flex;"><span>pSection <span style="color:#f92672">=</span> (CHAR<span style="color:#f92672">*</span>)<span style="color:#f92672">&amp;</span>pNtHeaders<span style="color:#f92672">-&gt;</span>OptionalHeader <span style="color:#f92672">+</span> pCtx<span style="color:#f92672">-&gt;</span>pFileHeader<span style="color:#f92672">-&gt;</span>SizeOfOptionalHeader;
+</span></span></code></pre></div><p>Once we have these, we iterate through each section header and:</p>
+<ol>
+<li>Allocate memory for our section context</li>
+<li>Extract the name and size of the current section, updating section context fields accordingly</li>
+<li>Insert the current section into the linked list</li>
+<li>Set our section header pointer to point to the next section header</li>
+</ol>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-c" data-lang="c"><span style="display:flex;"><span><span style="color:#66d9ef">for</span> (WORD i <span style="color:#f92672">=</span> <span style="color:#ae81ff">0</span>; i <span style="color:#f92672">&lt;</span> pCtx<span style="color:#f92672">-&gt;</span>SectionCount; i<span style="color:#f92672">++</span>)
+</span></span><span style="display:flex;"><span>{
+</span></span><span style="display:flex;"><span>	PPE_SECTION_CONTEXT pSectionCtx;
+</span></span><span style="display:flex;"><span>	PIMAGE_SECTION_HEADER pSectionHeader;
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>	pSectionHeader <span style="color:#f92672">=</span> (PIMAGE_SECTION_HEADER)pSection;
+</span></span><span style="display:flex;"><span>	pSectionCtx <span style="color:#f92672">=</span> (PPE_SECTION_CONTEXT)<span style="color:#a6e22e">HeapAlloc</span>(hHeap, HEAP_ZERO_MEMORY, <span style="color:#66d9ef">sizeof</span>(PE_SECTION_CONTEXT));
+</span></span><span style="display:flex;"><span>	<span style="color:#66d9ef">if</span> (<span style="color:#f92672">!</span>pSectionCtx)
+</span></span><span style="display:flex;"><span>		<span style="color:#66d9ef">return</span> PE_SECTION_CTX_ALLOC_FAILED;
+</span></span><span style="display:flex;"><span>	pSectionCtx<span style="color:#f92672">-&gt;</span>szName <span style="color:#f92672">=</span> pSectionHeader<span style="color:#f92672">-&gt;</span>Name;
+</span></span><span style="display:flex;"><span>	pSectionCtx<span style="color:#f92672">-&gt;</span>dwSize <span style="color:#f92672">=</span> pSectionHeader<span style="color:#f92672">-&gt;</span>SizeOfRawData;
+</span></span><span style="display:flex;"><span>	pSectionCtx<span style="color:#f92672">-&gt;</span>Next <span style="color:#f92672">=</span> NULL;
+</span></span><span style="display:flex;"><span>	<span style="color:#75715e">// Attach to linked list
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>	<span style="color:#66d9ef">if</span> (pLastSectionCtx)
+</span></span><span style="display:flex;"><span>		pLastSectionCtx<span style="color:#f92672">-&gt;</span>Next <span style="color:#f92672">=</span> pSectionCtx;
+</span></span><span style="display:flex;"><span>	<span style="color:#66d9ef">else</span> <span style="color:#75715e">// otherwise, set as first section in section context list
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>		pCtx<span style="color:#f92672">-&gt;</span>SectionCtxList <span style="color:#f92672">=</span> pSectionCtx;
+</span></span><span style="display:flex;"><span>	pLastSectionCtx <span style="color:#f92672">=</span> pSectionCtx;
+</span></span><span style="display:flex;"><span>	<span style="color:#75715e">// set to next section header
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>	pSection <span style="color:#f92672">=</span> (CHAR<span style="color:#f92672">*</span>)pSection <span style="color:#f92672">+</span> <span style="color:#66d9ef">sizeof</span>(IMAGE_SECTION_HEADER);
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><p>We use the <code>pLastSectionCtx</code> variable to hold the pointer to the last section context, so that we can update that context to point to the current context. Since each section context&rsquo;s <code>Next</code> pointer is assigned a NULL value, we will know once we&rsquo;ve reached the end of the linked list, as the <code>Next</code> field of whatever section context we are on is <code>NULL</code>. This is a common way to implement struct lists in C.</p>
+<p>That&rsquo;s all we need to do to extract the information that we wanted.</p>
+<h2 id="pefreectx">PEFreeCtx</h2>
+<p>This is the function that frees dynamically allocated memory in the <code>PE_CONTEXT</code> structure. This involves freeing all section contexts, and then the PE context itself.</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-c" data-lang="c"><span style="display:flex;"><span>DWORD <span style="color:#a6e22e">PEFreeCtx</span>(PPE_CONTEXT pCtx)
+</span></span><span style="display:flex;"><span>{
+</span></span><span style="display:flex;"><span>	BOOL status;
+</span></span><span style="display:flex;"><span>	PPE_SECTION_CONTEXT pSectionContext <span style="color:#f92672">=</span> pCtx<span style="color:#f92672">-&gt;</span>SectionCtxList;
+</span></span><span style="display:flex;"><span>	<span style="color:#66d9ef">do</span>
+</span></span><span style="display:flex;"><span>	{
+</span></span><span style="display:flex;"><span>		PPE_SECTION_CONTEXT Next <span style="color:#f92672">=</span> pSectionContext<span style="color:#f92672">-&gt;</span>Next;
+</span></span><span style="display:flex;"><span>		status <span style="color:#f92672">=</span> <span style="color:#a6e22e">HeapFree</span>(pCtx<span style="color:#f92672">-&gt;</span>hHeap, <span style="color:#ae81ff">0</span>, pSectionContext);
+</span></span><span style="display:flex;"><span>		<span style="color:#66d9ef">if</span> (<span style="color:#f92672">!</span>status)
+</span></span><span style="display:flex;"><span>			<span style="color:#66d9ef">return</span> PE_SECTION_CTX_FREE_FAILED;
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>		pSectionContext <span style="color:#f92672">=</span> Next;
+</span></span><span style="display:flex;"><span>	} <span style="color:#66d9ef">while</span> (pSectionContext <span style="color:#f92672">!=</span> NULL);
+</span></span><span style="display:flex;"><span>	status <span style="color:#f92672">=</span> <span style="color:#a6e22e">HeapFree</span>(pCtx<span style="color:#f92672">-&gt;</span>hHeap, <span style="color:#ae81ff">0</span>, pCtx);
+</span></span><span style="display:flex;"><span>	<span style="color:#66d9ef">if</span> (<span style="color:#f92672">!</span>status)
+</span></span><span style="display:flex;"><span>		<span style="color:#66d9ef">return</span> PE_CTX_FREE_FAILED;
+</span></span><span style="display:flex;"><span>	<span style="color:#66d9ef">return</span> PE_SUCCESS;
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><h2 id="wrapping-up">Wrapping Up</h2>
+<p>We can at last call our functions from <code>main</code>.</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-c" data-lang="c"><span style="display:flex;"><span>DWORD ldrStatus;
+</span></span><span style="display:flex;"><span>PPE_CONTEXT Context <span style="color:#f92672">=</span> NULL;
+</span></span><span style="display:flex;"><span>PPE_SECTION_CONTEXT pSectionContext <span style="color:#f92672">=</span> NULL;
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>ldrStatus <span style="color:#f92672">=</span> <span style="color:#a6e22e">PEParseFromBuffer</span>((LPVOID)pFileBuf, <span style="color:#f92672">&amp;</span>Context);
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">if</span> (ldrStatus)
+</span></span><span style="display:flex;"><span>{
+</span></span><span style="display:flex;"><span>	<span style="color:#a6e22e">printf</span>(<span style="color:#e6db74">&#34;PEParseFromBuffer failed (%d)</span><span style="color:#ae81ff">\n</span><span style="color:#e6db74">&#34;</span>, ldrStatus);
+</span></span><span style="display:flex;"><span>	<span style="color:#a6e22e">HeapFree</span>(hProcHeap, <span style="color:#ae81ff">0</span>, (LPVOID)pFileBuf);
+</span></span><span style="display:flex;"><span>	<span style="color:#66d9ef">return</span> <span style="color:#ae81ff">1</span>;
+</span></span><span style="display:flex;"><span>}
+</span></span><span style="display:flex;"><span><span style="color:#a6e22e">printf</span>(<span style="color:#e6db74">&#34;Done!</span><span style="color:#ae81ff">\n\n</span><span style="color:#e6db74">&#34;</span>);
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#a6e22e">printf</span>(<span style="color:#e6db74">&#34;Name:                   %s</span><span style="color:#ae81ff">\n</span><span style="color:#e6db74">&#34;</span>, argv[<span style="color:#ae81ff">1</span>]);
+</span></span><span style="display:flex;"><span><span style="color:#a6e22e">printf</span>(<span style="color:#e6db74">&#34;Is 64-bit:              %d</span><span style="color:#ae81ff">\n</span><span style="color:#e6db74">&#34;</span>, Context<span style="color:#f92672">-&gt;</span>isX64);
+</span></span><span style="display:flex;"><span><span style="color:#a6e22e">printf</span>(<span style="color:#e6db74">&#34;Compile time (epoch):   %d</span><span style="color:#ae81ff">\n</span><span style="color:#e6db74">&#34;</span>, Context<span style="color:#f92672">-&gt;</span>CompileTime);
+</span></span><span style="display:flex;"><span><span style="color:#a6e22e">printf</span>(<span style="color:#e6db74">&#34;</span><span style="color:#ae81ff">\n</span><span style="color:#e6db74">Sections (%d)</span><span style="color:#ae81ff">\n</span><span style="color:#e6db74">========</span><span style="color:#ae81ff">\n</span><span style="color:#e6db74">&#34;</span>, Context<span style="color:#f92672">-&gt;</span>SectionCount);
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">for</span> (pSectionContext <span style="color:#f92672">=</span> Context<span style="color:#f92672">-&gt;</span>SectionCtxList; pSectionContext <span style="color:#f92672">!=</span> NULL; pSectionContext <span style="color:#f92672">=</span> pSectionContext<span style="color:#f92672">-&gt;</span>Next)
+</span></span><span style="display:flex;"><span>{
+</span></span><span style="display:flex;"><span>	<span style="color:#a6e22e">printf</span>(<span style="color:#e6db74">&#34;</span><span style="color:#ae81ff">\n</span><span style="color:#e6db74">&#34;</span>);
+</span></span><span style="display:flex;"><span>	<span style="color:#a6e22e">printf</span>(<span style="color:#e6db74">&#34;Name: %s</span><span style="color:#ae81ff">\n</span><span style="color:#e6db74">&#34;</span>, pSectionContext<span style="color:#f92672">-&gt;</span>szName);
+</span></span><span style="display:flex;"><span>	<span style="color:#a6e22e">printf</span>(<span style="color:#e6db74">&#34;Size: %d bytes</span><span style="color:#ae81ff">\n</span><span style="color:#e6db74">&#34;</span>, pSectionContext<span style="color:#f92672">-&gt;</span>dwSize);
+</span></span><span style="display:flex;"><span>}
+</span></span><span style="display:flex;"><span><span style="color:#a6e22e">PEFreeCtx</span>(Context);
+</span></span></code></pre></div><p>Running this code on x64dbg&rsquo;s binary produces the following output.</p>
+<p><img src="images/output.png" alt="output"></p>
+<p>That&rsquo;s all folks. The full code can be found on <a href="https://github.com/pygrum/WindowsPE/tree/main/PEFormat">GitHub</a>.</p>
+<h2 id="references">References</h2>
+<ul>
+<li><a href="https://learn.microsoft.com/en-us/windows/win32/debug/pe-format">https://learn.microsoft.com/en-us/windows/win32/debug/pe-format</a></li>
+<li><a href="https://bytepointer.com/resources/oleary_pe_format.htm">https://bytepointer.com/resources/oleary_pe_format.htm</a></li>
+</ul>
+
+		</section>
+
+		<div class="post-tags">
+			
+			
+			
+		</div>
+		<div id="disqus_thread"></div>
+<script type="text/javascript">
+    (function () {
+        
+        
+        if (window.location.hostname == "localhost")
+            return;
+
+        var dsq = document.createElement('script');
+        dsq.type = 'text/javascript';
+        dsq.async = true;
+        var disqus_shortname = 'pygrum-security';
+        dsq.src = '//' + disqus_shortname + '.disqus.com/embed.js';
+        (document.getElementsByTagName('head')[0] || document.getElementsByTagName('body')[0]).appendChild(dsq);
+    })();
+</script>
+<noscript>Please enable JavaScript to view the <a href="http://disqus.com/?ref_noscript">comments powered by
+        Disqus.</a></noscript>
+<a href="http://disqus.com/" class="dsq-brlink">comments powered by <span class="logo-disqus">Disqus</span></a></article>
+</main>
+<footer>
+  <div style="display:flex"><a class="soc" href="https://github.com/pygrum" rel="me" title="GitHub"><i data-feather="github"></i></a>
+    <a class="border"></a><a class="soc" href="https://twitter.com/pygrumsec" rel="me" title="Twitter"><i data-feather="twitter"></i></a>
+    <a class="border"></a></div>
+  <div class="footer-info">
+    2024  © Pygrum  
+</footer>
+
+
+<script>
+  feather.replace()
+</script></div>
+    </body>
+</html>
