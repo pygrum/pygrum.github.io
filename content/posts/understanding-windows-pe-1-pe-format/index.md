@@ -12,8 +12,6 @@ By the end of this article, we will have written a tool in C that extracts basic
 
 All sources are under the 'references' heading at the end of this article.
 
-I highly recommend reading [this](https://learn.microsoft.com/en-us/archive/msdn-magazine/2002/february/inside-windows-win32-portable-executable-file-format-in-detail) article, as not only does this post use it as a reference, but it provides a short history on the Windows PE file format.
-
 ## The Windows Portable Executable
 
 In short, the Windows PE is a file format for executables, as well as a couple other file types. This file has a specific structure that tells Windows how to load it, where to load it, and how to execute it. You can also gather some information about the file by parsing it manually, which is what we'll do in this article.
