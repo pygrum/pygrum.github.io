@@ -126,7 +126,7 @@ Next, we define the two functions we will need to parse the headers.
 ```c
 // ParsePEFromBuffer parses a PE file's information into a PE_CONTEXT structure.
 // If unsuccessful, if returns a non-zero value. Use PEGetLastError() to get error information.
-DWORD PEParseFromBuffer(LPVOID lpBuffer, PPE_CONTEXT pCtx);
+DWORD PEParseFromBuffer(LPVOID lpBuffer, PPE_CONTEXT* pCtx);
 DWORD PEFreeCtx(PPE_CONTEXT pCtx);
 ```
 

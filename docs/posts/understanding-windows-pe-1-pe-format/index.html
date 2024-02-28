@@ -177,7 +177,7 @@ pointers to dynamically allocated blocks of memory without having to worry about
 <p>Next, we define the two functions we will need to parse the headers.</p>
 <div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-c" data-lang="c"><span style="display:flex;"><span><span style="color:#75715e">// ParsePEFromBuffer parses a PE file&#39;s information into a PE_CONTEXT structure.
 </span></span></span><span style="display:flex;"><span><span style="color:#75715e">// If unsuccessful, if returns a non-zero value. Use PEGetLastError() to get error information.
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>DWORD <span style="color:#a6e22e">PEParseFromBuffer</span>(LPVOID lpBuffer, PPE_CONTEXT pCtx);
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>DWORD <span style="color:#a6e22e">PEParseFromBuffer</span>(LPVOID lpBuffer, PPE_CONTEXT<span style="color:#f92672">*</span> pCtx);
 </span></span><span style="display:flex;"><span>DWORD <span style="color:#a6e22e">PEFreeCtx</span>(PPE_CONTEXT pCtx);
 </span></span></code></pre></div><p>Finally, I&rsquo;ll define some generic status codes that these functions will return.</p>
 <div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-c" data-lang="c"><span style="display:flex;"><span><span style="color:#75715e">#define PE_SUCCESS 0
