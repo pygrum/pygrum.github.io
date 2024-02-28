@@ -104,7 +104,7 @@ We define structures for useful information in our PE parser header file, `pepar
 typedef struct _PE_SECTION_CONTEXT {
 	LPCSTR szName;
 	DWORD dwSize;
-	PPE_SECTION_CONTEXT Next;
+	struct _PE_SECTION_CONTEXT *Next;
 } PE_SECTION_CONTEXT, * PPE_SECTION_CONTEXT;
 
 typedef struct _PE_CONTEXT {
