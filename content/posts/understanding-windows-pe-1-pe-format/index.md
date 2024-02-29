@@ -2,6 +2,7 @@
 title = 'Understanding the Windows Portable Executable, Part 1 - PE Format'
 date = 2024-02-27T18:47:18Z
 draft = false
+tags = ["Malware Analysis", "Malware Development"]
 +++
 
 ## Introduction
