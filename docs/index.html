@@ -10,7 +10,6 @@
 <meta property="og:description" content="" />
 <meta property="og:type" content="website" />
 <meta property="og:url" content="https://pygrum.github.io/" /><meta property="og:site_name" content="Pygrum" />
-
 <meta name="twitter:card" content="summary"/><meta name="twitter:title" content=""/>
 <meta name="twitter:description" content=""/>
 <script src="https://pygrum.github.io/js/feather.min.js"></script>
@@ -40,6 +39,7 @@
 	<link rel="icon" type="image/png" sizes="16x16" href="/favicon-16x16.png">
 	<link rel="manifest" href="/site.webmanifest">
 	<link rel="mask-icon" href="/safari-pinned-tab.svg" color="#5bbad5">
+	<link rel="alternate" type="application/rss+xml" href="https://pygrum.github.io//index.xml" title="Pygrum">
 	<meta name="msapplication-TileColor" content="#da532c">
 	<meta name="theme-color" content="#ffffff">	
 </head>
@@ -67,6 +67,19 @@
 				<div class="site-description"><p>Malware R&amp;D, Reverse Engineering and Offensive Security</p></div>
 				
 				
+				
+				<section class="list-item">
+					<h1 class="title"><a href="/posts/koi-stealer/">A Deconstruction of Koi Stealer - Malware Analysis</a></h1>
+					<time>Apr 8, 2024</time>
+					<br><div class="description">
+	
+	Overview Koi stealer samples began appearing on any.run in mid-late february. The samples identified as Koi are mostly Powershell scripts, including the one I analysed.
+Note: Koi stealer should not be confused with AZORult. From what I&rsquo;ve identified, they are two distinct families, and not even written in the same language. Koi is written in C# while AZORult 2019 is written in C++.
+The stealer performs basic system checks before stealing various data in 3 stages - browser data, including passwords, cryptocurrency wallet and password manager data, some application data, and other files of interest.&hellip;
+	
+</div>
+					<a class="readmore" href="/posts/koi-stealer/">Read more ⟶</a>
+				</section>
 				
 				<section class="list-item">
 					<h1 class="title"><a href="/posts/understanding-windows-pe-1-pe-format/">Understanding the Windows Portable Executable, Part 1 - PE Format</a></h1>

@@ -7,13 +7,20 @@
     <generator>Hugo -- gohugo.io</generator>
     <language>en-us</language>
     <copyright>© Pygrum</copyright>
-    <lastBuildDate>Tue, 27 Feb 2024 18:47:18 +0000</lastBuildDate>
+    <lastBuildDate>Mon, 08 Apr 2024 15:27:05 +0100</lastBuildDate>
     <atom:link href="https://pygrum.github.io/tags/index.xml" rel="self" type="application/rss+xml" />
     <item>
       <title>Malware Analysis</title>
       <link>https://pygrum.github.io/tags/malware-analysis/</link>
-      <pubDate>Tue, 27 Feb 2024 18:47:18 +0000</pubDate>
+      <pubDate>Mon, 08 Apr 2024 15:27:05 +0100</pubDate>
       <guid>https://pygrum.github.io/tags/malware-analysis/</guid>
+      <description></description>
+    </item>
+    <item>
+      <title>Reverse Engineering</title>
+      <link>https://pygrum.github.io/tags/reverse-engineering/</link>
+      <pubDate>Mon, 08 Apr 2024 15:27:05 +0100</pubDate>
+      <guid>https://pygrum.github.io/tags/reverse-engineering/</guid>
       <description></description>
     </item>
     <item>
@@ -21,13 +28,6 @@
       <link>https://pygrum.github.io/tags/malware-development/</link>
       <pubDate>Tue, 27 Feb 2024 18:47:18 +0000</pubDate>
       <guid>https://pygrum.github.io/tags/malware-development/</guid>
-      <description></description>
-    </item>
-    <item>
-      <title>Reverse Engineering</title>
-      <link>https://pygrum.github.io/tags/reverse-engineering/</link>
-      <pubDate>Thu, 18 Jan 2024 23:29:54 +0000</pubDate>
-      <guid>https://pygrum.github.io/tags/reverse-engineering/</guid>
       <description></description>
     </item>
   </channel>
