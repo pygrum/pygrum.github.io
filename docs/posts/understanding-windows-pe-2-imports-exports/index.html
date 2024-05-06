@@ -1,0 +1,463 @@
+<!DOCTYPE html>
+<html><head lang="en">
+	<meta charset="utf-8" />
+	<meta http-equiv="X-UA-Compatible" content="IE=edge"><title>Understanding the Windows Portable Executable, Part 2 - Imports &amp; Exports - Pygrum</title><meta name="viewport" content="width=device-width, initial-scale=1">
+	<meta name="description" content="Introduction This post follows part 1 of the Windows PE series, where we parsed basic information about a Windows portable executable, including whether it was 64-bit or not, the compile time, section count, and section sizes. In this article, we parse imported and exported functions in the PE.
+Why? Imports and exports can prove to be very useful when determining the true nature of malware. Predictions about the malware class or behaviour can be made with reasonable accuracy, if already confirmed to be malicious." />
+	<meta property="og:image" content=""/>
+	<meta property="og:title" content="Understanding the Windows Portable Executable, Part 2 - Imports &amp; Exports" />
+<meta property="og:description" content="Introduction This post follows part 1 of the Windows PE series, where we parsed basic information about a Windows portable executable, including whether it was 64-bit or not, the compile time, section count, and section sizes. In this article, we parse imported and exported functions in the PE.
+Why? Imports and exports can prove to be very useful when determining the true nature of malware. Predictions about the malware class or behaviour can be made with reasonable accuracy, if already confirmed to be malicious." />
+<meta property="og:type" content="article" />
+<meta property="og:url" content="https://pygrum.github.io/posts/understanding-windows-pe-2-imports-exports/" /><meta property="article:section" content="posts" />
+<meta property="article:published_time" content="2024-05-01T20:54:07+01:00" />
+<meta property="article:modified_time" content="2024-05-01T20:54:07+01:00" /><meta property="og:site_name" content="Pygrum" />
+
+<meta name="twitter:card" content="summary"/><meta name="twitter:title" content="Understanding the Windows Portable Executable, Part 2 - Imports &amp; Exports"/>
+<meta name="twitter:description" content="Introduction This post follows part 1 of the Windows PE series, where we parsed basic information about a Windows portable executable, including whether it was 64-bit or not, the compile time, section count, and section sizes. In this article, we parse imported and exported functions in the PE.
+Why? Imports and exports can prove to be very useful when determining the true nature of malware. Predictions about the malware class or behaviour can be made with reasonable accuracy, if already confirmed to be malicious."/>
+<script src="https://pygrum.github.io/js/feather.min.js"></script>
+	
+	
+        <link href="https://pygrum.github.io/css/fonts.2c2227b81b1970a03e760aa2e6121cd01f87c88586803cbb282aa224720a765f.css" rel="stylesheet">
+	
+
+	
+	<link rel="stylesheet" type="text/css" media="screen" href="https://pygrum.github.io/css/main.9c40cac2f9d1ada2d69a950e08f0523bb5bb23371ce7e8b3d157b2178d74abe6.css" />
+		<link id="darkModeStyle" rel="stylesheet" type="text/css" href="https://pygrum.github.io/css/dark.726cd11ca6eb7c4f7d48eb420354f814e5c1b94281aaf8fd0511c1319f7f78a4.css"   />
+	
+
+	
+	
+
+	
+	
+	
+	
+		
+		
+		<link rel="stylesheet" type="text/css" href="https://pygrum.github.io/css/extended.47c16d04bef5a8ac0e64f9b08e1d6f6f8a429b1d07716e3c0984ca36a2671bc1.css">
+		
+	<link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png">
+	<link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png">
+	<link rel="icon" type="image/png" sizes="16x16" href="/favicon-16x16.png">
+	<link rel="manifest" href="/site.webmanifest">
+	<link rel="mask-icon" href="/safari-pinned-tab.svg" color="#5bbad5">
+	<link rel="alternate" type="application/rss+xml" href="https://pygrum.github.io//index.xml" title="Pygrum">
+	<meta name="msapplication-TileColor" content="#da532c">
+	<meta name="theme-color" content="#ffffff">	
+</head>
+<body>
+        <div class="content"><header>
+	<div class="main">
+		<a href="https://pygrum.github.io/">Pygrum</a>
+	</div>
+	<nav>
+		
+		<a href="/about/">About</a>
+		
+		<a href="/tags">Tags</a>
+		
+		<a href="/posts/">Posts</a>
+		
+		
+	</nav>
+</header>
+
+<main>
+	<article>
+		<div class="title">
+			<h1 class="title">Understanding the Windows Portable Executable, Part 2 - Imports &amp; Exports</h1>
+			<div class="meta">Posted on May 1, 2024</div>
+		</div>
+		
+
+		<section class="body">
+			<h2 id="introduction">Introduction</h2>
+<p>This post follows <a href="https://pygrum.github.io/posts/understanding-windows-pe-1-pe-format/">part 1</a> of the Windows PE series, where we parsed basic information about a Windows portable executable, including whether it was 64-bit or not, the compile time, section count, and section sizes. In this article, we parse imported and exported functions in the PE.</p>
+<h3 id="why">Why?</h3>
+<p>Imports and exports can prove to be very useful when determining the true nature of malware. Predictions about the malware class or behaviour can be made with reasonable accuracy, if already confirmed to be malicious. For example, seeing that a sample only imports &lsquo;LoadLibrary&rsquo; and &lsquo;GetProcAddress&rsquo; can tell an analyst that malware dynamically loads the rest of its imports. Or, seeing Crypt*, filesystem and networking functions being imported can suggest that a particular sample may be ransomware. The more data we can extract from artefacts and examine, the better our evaluations will be.</p>
+<h3 id="note">Note</h3>
+<p>Here are some important things to consider.</p>
+<ul>
+<li>Typically, more advanced malware would not make it very easy to determine its functionality based simply off of imports and exports. Further advanced static and dynamic analysis techniques are required to create a full picture.</li>
+<li>Various Kernel32 functions are linked to binaries by default when compiled using a recent version of MSVC. This is because Microsoft&rsquo;s C runtime library uses these functions.</li>
+<li>In this article, for simplicity, we will only go over import and export parsing for 64-bit PEs.</li>
+</ul>
+<p>All the information and techniques used in this article was found and derived from official Microsoft documentation, listed under &lsquo;References&rsquo; at the end of this article. This is to emulate how early implementations of components of PE parsers or loaders may have been researched and developed.</p>
+<h2 id="read-the-manual">Read The Manual!</h2>
+<p>So, where do we find import and export information? The <code>.edata</code> and <code>.idata</code> sections <a href="https://learn.microsoft.com/en-us/windows/win32/debug/pe-format#the-edata-section-image-only%3A~%3Atext%3DSection%2520%28Object%2520Only%29-%2CThe%2520.edata%2520Section%2520%28Image%2520Only%29%2CImport%2520Address%2520Table%2C-The%2520.pdata%2520Section">typically</a> contain this information. However, this isn&rsquo;t always the case. You&rsquo;ll find during this article that the section that contains the import / export data does not matter to us, as we&rsquo;ll write a function to automatically locate this data based on a provided RVA.</p>
+<h2 id="import-directory-table-idt">Import Directory Table (IDT)</h2>
+<p>There&rsquo;s a comprehensive enough section on the IDT in <a href="https://learn.microsoft.com/en-us/windows/win32/debug/pe-format#import-directory-table">this section</a> of the PE format specification. Look in particular at the structure for each import directory entry, represented as a table. To get access to this data, we need to know where to find the IDT. Once again, we consult the docs and see that the import table is <a href="https://learn.microsoft.com/en-us/windows/win32/debug/pe-format#optional-header-data-directories-image-only">one of the data directories</a> in the optional header. It&rsquo;s shown as the second entry. <a href="https://github.com/Alexpux/mingw-w64/blob/master/mingw-w64-tools/widl/include/winnt.h"><code>Winnt.h</code></a> (the header that provides most of this information) contains useful macros for each entry in case we forget, or they are changed in the future.</p>
+<p>Since we already parsed the NT headers in the last post, we can easily fetch the import directory programmatically.</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-c" data-lang="c"><span style="display:flex;"><span>DWORD ImportCount <span style="color:#f92672">=</span> <span style="color:#ae81ff">0</span>;
+</span></span><span style="display:flex;"><span>ImportDirectory <span style="color:#f92672">=</span> pNtHeaders<span style="color:#f92672">-&gt;</span>OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_IMPORT];
+</span></span></code></pre></div><p>Now, from the documentation, we can see how each <code>IMAGE_DATA_DIRECTORY</code> entry looks like.</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-c" data-lang="c"><span style="display:flex;"><span><span style="color:#66d9ef">typedef</span> <span style="color:#66d9ef">struct</span> _IMAGE_DATA_DIRECTORY {
+</span></span><span style="display:flex;"><span>    DWORD   VirtualAddress;
+</span></span><span style="display:flex;"><span>    DWORD   Size;
+</span></span><span style="display:flex;"><span>} IMAGE_DATA_DIRECTORY, <span style="color:#f92672">*</span>PIMAGE_DATA_DIRECTORY;
+</span></span></code></pre></div><p>This virtual address is described as the RVA (relative virtual address) of the table in memory.</p>
+<h3 id="working-with-rvas">Working with RVAs</h3>
+<blockquote>
+<p>The RVA is the address of the table relative to the base address of the image when the table is loaded.</p>
+</blockquote>
+<p>The important part here is <em>when the table is loaded</em>. This means that we can&rsquo;t calculate the RVA by simply offsetting from the base address, since how the PE is structured on disk is not how it will be structured once loaded by Windows. Remember that we find import and export data in <code>.idata</code> and <code>.edata</code>? If these sections aren&rsquo;t yet mapped into memory, how would we reliably find data?</p>
+<p>Well, we can calculate the RVA without needing to load the entire image. It just requires a bit of math (no, sorry, you&rsquo;ll never escape math).</p>
+<p>First of all, we need to understand that relative virtual addresses are addresses for once the image is loaded correctly in memory. A section&rsquo;s virtual address is an RVA, as is a data directory&rsquo;s virtual address. To get the raw address (file offset), we need to first find where the raw data is stored, and then find the offset that our RVA will be located at, relative to the base of the raw data.</p>
+<p>We know that raw section data will be loaded at <code>VirtualAddress</code> (an RVA), and so because the data directory&rsquo;s address is also an RVA within that section, we can find its offset from the section start based on where they both will be once loaded. This is (directoryVA - sectionVA). Now that we know the virtual offset, we can use it to calculate the raw offset. Remember, though, that the raw offset is relative to the image base, so we need to add the base address on too.<br>
+Our final equation looks like this:</p>
+<p>imageBase + rawOffset + (directoryVA - sectionVA)</p>
+<p>Thankfully, that&rsquo;s just the hardest bit. Since we&rsquo;re going to need to do this for any data that lies within a section, we need to craft a generic function that can:</p>
+<ol>
+<li>Find which section contains the RVA we want converted</li>
+<li>Get the raw section data</li>
+<li>Calculate the absolute offset of the data from the section&rsquo;s raw data</li>
+<li>Correct and apply to the section base on disk, and the image base</li>
+</ol>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-c" data-lang="c"><span style="display:flex;"><span><span style="color:#75715e">// Converts RVAs found in the image headers to raw file offsets. If an RVA is not found within a section, NULL is returned.
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>DWORD_PTR <span style="color:#a6e22e">RvaToRaw</span>(PPE_CONTEXT Ctx, DWORD RVA) {
+</span></span><span style="display:flex;"><span>	PIMAGE_FILE_HEADER lpFileHeader <span style="color:#f92672">=</span> Ctx<span style="color:#f92672">-&gt;</span>pFileHeader;
+</span></span><span style="display:flex;"><span>	BYTE<span style="color:#f92672">*</span> lpOptionalHeader <span style="color:#f92672">=</span> <span style="color:#f92672">&amp;</span>Ctx<span style="color:#f92672">-&gt;</span>pNtHeaders<span style="color:#f92672">-&gt;</span>OptionalHeader;
+</span></span><span style="display:flex;"><span>	PIMAGE_SECTION_HEADER lpSections <span style="color:#f92672">=</span> (PIMAGE_SECTION_HEADER)(lpOptionalHeader <span style="color:#f92672">+</span> lpFileHeader<span style="color:#f92672">-&gt;</span>SizeOfOptionalHeader);
+</span></span><span style="display:flex;"><span>	<span style="color:#66d9ef">for</span> (<span style="color:#66d9ef">int</span> i <span style="color:#f92672">=</span> <span style="color:#ae81ff">0</span>; i <span style="color:#f92672">&lt;</span> lpFileHeader<span style="color:#f92672">-&gt;</span>NumberOfSections; <span style="color:#f92672">++</span>i)
+</span></span><span style="display:flex;"><span>	{
+</span></span><span style="display:flex;"><span>		IMAGE_SECTION_HEADER section <span style="color:#f92672">=</span> lpSections[i];
+</span></span><span style="display:flex;"><span>		<span style="color:#75715e">// If RVA is located within section, find the offset relative to section&#39;s VA after loading, and then use that as an offset from 
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>		<span style="color:#75715e">// PointerToRawData. 
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>		<span style="color:#66d9ef">if</span> (RVA <span style="color:#f92672">&gt;=</span> section.VirtualAddress <span style="color:#f92672">&amp;&amp;</span> RVA <span style="color:#f92672">&lt;=</span> section.VirtualAddress <span style="color:#f92672">+</span> section.Misc.VirtualSize)
+</span></span><span style="display:flex;"><span>			<span style="color:#66d9ef">return</span> (CHAR<span style="color:#f92672">*</span>)Ctx<span style="color:#f92672">-&gt;</span>pImageBase <span style="color:#f92672">+</span> section.PointerToRawData <span style="color:#f92672">+</span> (RVA <span style="color:#f92672">-</span> section.VirtualAddress);
+</span></span><span style="display:flex;"><span>	}
+</span></span><span style="display:flex;"><span>	<span style="color:#66d9ef">return</span> NULL;
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><p>Pretty straightforward once implemented!</p>
+<h3 id="import-descriptors">Import Descriptors</h3>
+<p>Now we can move on to parsing import directory entries. As mentioned earlier, there is a table that describes each entry, with the offset of each field shown. Even more handy is the struct that Microsoft provides us in <code>Winnt.h</code> for parsing these, <code>IMAGE_IMPORT_DESCRIPTOR</code>, although we could define them ourselves if we wanted to.</p>
+<p>So, we can get our first image import descriptor using our <code>RvaToRaw</code> function and the virtual address of the import directory, as the directory points immediately to the first image import descriptor.</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-c" data-lang="c"><span style="display:flex;"><span>PIMAGE_IMPORT_DESCRIPTOR pImageImportDescriptor <span style="color:#f92672">=</span> (PIMAGE_IMPORT_DESCRIPTOR)(<span style="color:#a6e22e">RvaToRaw</span>(pCtx, ImportDirectory.VirtualAddress));
+</span></span></code></pre></div><p>What if a function has no imports? then the resulting <code>pImageImportDescriptor</code> would be NULL. We check the value of the pointer first before discovering imports at all.</p>
+<p>Each <code>IMAGE_IMPORT_DESCRIPTOR</code> contains the name of the imported DLL in the <code>Name</code> field. Checking the definition of the struct (<code>Ctrl+Click</code> in Visual Studio 2022), we see that the OriginalFirstThunk is an RVA to the import address table, represented as an array of <code>PIMAGE_THUNK_DATA</code> (see code comments). The PIMAGE_THUNK_DATA struct actually contains the <a href="https://learn.microsoft.com/en-us/windows/win32/debug/pe-format#hintname-table">Hint/Name table</a> in the <code>AddressOfData</code> field, so we can use it to find the specific imported functions from the DLL.</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-c" data-lang="c"><span style="display:flex;"><span><span style="color:#66d9ef">typedef</span> <span style="color:#66d9ef">struct</span> _IMAGE_IMPORT_DESCRIPTOR {
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">union</span> {
+</span></span><span style="display:flex;"><span>        DWORD   Characteristics;            <span style="color:#75715e">// 0 for terminating null import descriptor
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>        DWORD   OriginalFirstThunk;         <span style="color:#75715e">// RVA to original unbound IAT (PIMAGE_THUNK_DATA)
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    } DUMMYUNIONNAME;
+</span></span><span style="display:flex;"><span>    DWORD   TimeDateStamp;                  <span style="color:#75715e">// 0 if not bound,
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>                                            <span style="color:#75715e">// -1 if bound, and real date\time stamp
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>                                            <span style="color:#75715e">//     in IMAGE_DIRECTORY_ENTRY_BOUND_IMPORT (new BIND)
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>                                            <span style="color:#75715e">// O.W. date/time stamp of DLL bound to (Old BIND)
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>
+</span></span><span style="display:flex;"><span>    DWORD   ForwarderChain;                 <span style="color:#75715e">// -1 if no forwarders
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    DWORD   Name;
+</span></span><span style="display:flex;"><span>    DWORD   FirstThunk;                     <span style="color:#75715e">// RVA to IAT (if bound this IAT has actual addresses)
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>} IMAGE_IMPORT_DESCRIPTOR;
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">typedef</span> IMAGE_IMPORT_DESCRIPTOR UNALIGNED <span style="color:#f92672">*</span>PIMAGE_IMPORT_DESCRIPTOR;
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>...
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">typedef</span> <span style="color:#66d9ef">struct</span> _IMAGE_THUNK_DATA64 {
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">union</span> {
+</span></span><span style="display:flex;"><span>        ULONGLONG ForwarderString;  <span style="color:#75715e">// PBYTE 
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>        ULONGLONG Function;         <span style="color:#75715e">// PDWORD
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>        ULONGLONG Ordinal;
+</span></span><span style="display:flex;"><span>        ULONGLONG AddressOfData;    <span style="color:#75715e">// PIMAGE_IMPORT_BY_NAME
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    } u1;
+</span></span><span style="display:flex;"><span>} IMAGE_THUNK_DATA64;
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">typedef</span> IMAGE_THUNK_DATA64 <span style="color:#f92672">*</span> PIMAGE_THUNK_DATA64;
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>...
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">typedef</span> <span style="color:#66d9ef">struct</span> _IMAGE_IMPORT_BY_NAME {
+</span></span><span style="display:flex;"><span>    WORD    Hint;
+</span></span><span style="display:flex;"><span>    CHAR   Name[<span style="color:#ae81ff">1</span>];
+</span></span><span style="display:flex;"><span>} IMAGE_IMPORT_BY_NAME, <span style="color:#f92672">*</span>PIMAGE_IMPORT_BY_NAME;
+</span></span></code></pre></div><p><em>Directly from winnt.h</em></p>
+<p>Now we have a plan of action.</p>
+<ol>
+<li>Loop through all imported modules (<code>IMAGE_IMPORT_DESCRIPTOR</code>)</li>
+<li>Extract thunk data (<code>IMAGE_THUNK_DATA</code>) from <code>OriginalFirstThunk</code></li>
+<li>For each thunk data, loop through hint/name table (<code>AddressOfData</code> field; <code>PIMAGE_IMPORT_BY_NAME</code>) and save <code>Name</code> field (which is an RVA)</li>
+</ol>
+<p>I&rsquo;ll save this data to an import context struct I defined, which is part of the original context structure from the first part of the series as <code>ImportCtxList</code>.</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-c" data-lang="c"><span style="display:flex;"><span><span style="color:#66d9ef">typedef</span> <span style="color:#66d9ef">struct</span> _PE_IMPORT_CONTEXT {
+</span></span><span style="display:flex;"><span>	LPSTR szName;
+</span></span><span style="display:flex;"><span>	DWORD ImportCount;
+</span></span><span style="display:flex;"><span>	LPSTR ImportTable[ PE_MAXIMUM_IMPORTS ];
+</span></span><span style="display:flex;"><span>	<span style="color:#66d9ef">struct</span> _PE_IMPORT_CONTEXT <span style="color:#f92672">*</span>Next;
+</span></span><span style="display:flex;"><span>} PE_IMPORT_CONTEXT, <span style="color:#f92672">*</span>PPE_IMPORT_CONTEXT;
+</span></span></code></pre></div><p>Here&rsquo;s the code that does this:</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-c" data-lang="c"><span style="display:flex;"><span><span style="color:#66d9ef">if</span> (pImageImportDescriptor)
+</span></span><span style="display:flex;"><span>{
+</span></span><span style="display:flex;"><span>	PPE_IMPORT_CONTEXT pLastImportCtx <span style="color:#f92672">=</span> NULL;
+</span></span><span style="display:flex;"><span>	<span style="color:#66d9ef">for</span> (; pImageImportDescriptor<span style="color:#f92672">-&gt;</span>Characteristics; pImageImportDescriptor<span style="color:#f92672">++</span>)
+</span></span><span style="display:flex;"><span>	{
+</span></span><span style="display:flex;"><span>		PPE_IMPORT_CONTEXT pImportCtx <span style="color:#f92672">=</span> NULL;
+</span></span><span style="display:flex;"><span>		pImportCtx <span style="color:#f92672">=</span> (PPE_IMPORT_CONTEXT)<span style="color:#a6e22e">HeapAlloc</span>(hHeap, HEAP_ZERO_MEMORY, <span style="color:#66d9ef">sizeof</span>(PE_IMPORT_CONTEXT));
+</span></span><span style="display:flex;"><span>		<span style="color:#66d9ef">if</span> (<span style="color:#f92672">!</span>pImportCtx)
+</span></span><span style="display:flex;"><span>			<span style="color:#66d9ef">return</span> PE_IMPORT_CTX_ALLOC_FAILED;
+</span></span><span style="display:flex;"><span>		PIMAGE_THUNK_DATA pImageImportEntry;
+</span></span><span style="display:flex;"><span>		DWORD ImportEntryCount <span style="color:#f92672">=</span> <span style="color:#ae81ff">0</span>;
+</span></span><span style="display:flex;"><span>		pImportCtx<span style="color:#f92672">-&gt;</span>szName <span style="color:#f92672">=</span> <span style="color:#a6e22e">RvaToRaw</span>(pCtx, pImageImportDescriptor<span style="color:#f92672">-&gt;</span>Name);
+</span></span><span style="display:flex;"><span>		<span style="color:#75715e">// First original thunk is the first IAT entry.
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>
+</span></span><span style="display:flex;"><span>		<span style="color:#66d9ef">for</span> (pImageImportEntry <span style="color:#f92672">=</span> <span style="color:#a6e22e">RvaToRaw</span>(pCtx, pImageImportDescriptor<span style="color:#f92672">-&gt;</span>OriginalFirstThunk);
+</span></span><span style="display:flex;"><span>			pImageImportEntry<span style="color:#f92672">-&gt;</span>u1.AddressOfData <span style="color:#f92672">!=</span> NULL;
+</span></span><span style="display:flex;"><span>			pImageImportEntry<span style="color:#f92672">++</span>)
+</span></span><span style="display:flex;"><span>		{
+</span></span><span style="display:flex;"><span>			PIMAGE_IMPORT_BY_NAME pImportName <span style="color:#f92672">=</span> (PIMAGE_IMPORT_BY_NAME)pImageImportEntry<span style="color:#f92672">-&gt;</span>u1.AddressOfData;
+</span></span><span style="display:flex;"><span>			<span style="color:#66d9ef">if</span> (ImportEntryCount <span style="color:#f92672">&lt;=</span> PE_MAXIMUM_IMPORTS)
+</span></span><span style="display:flex;"><span>				pImportCtx<span style="color:#f92672">-&gt;</span>ImportTable[ImportEntryCount] <span style="color:#f92672">=</span> <span style="color:#a6e22e">RvaToRaw</span>(pCtx, pImportName<span style="color:#f92672">-&gt;</span>Name);
+</span></span><span style="display:flex;"><span>			ImportEntryCount<span style="color:#f92672">++</span>;
+</span></span><span style="display:flex;"><span>		}
+</span></span><span style="display:flex;"><span>		pImportCtx<span style="color:#f92672">-&gt;</span>ImportCount <span style="color:#f92672">=</span> ImportEntryCount;
+</span></span><span style="display:flex;"><span>		<span style="color:#66d9ef">if</span> (pLastImportCtx)
+</span></span><span style="display:flex;"><span>			pLastImportCtx<span style="color:#f92672">-&gt;</span>Next <span style="color:#f92672">=</span> pImportCtx;
+</span></span><span style="display:flex;"><span>		<span style="color:#66d9ef">else</span>
+</span></span><span style="display:flex;"><span>			pCtx<span style="color:#f92672">-&gt;</span>ImportCtxList <span style="color:#f92672">=</span> pImportCtx;
+</span></span><span style="display:flex;"><span>		pLastImportCtx <span style="color:#f92672">=</span> pImportCtx;
+</span></span><span style="display:flex;"><span>		ImportCount<span style="color:#f92672">++</span>;
+</span></span><span style="display:flex;"><span>	}
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><h2 id="export-directory-table-edt">Export Directory Table (EDT)</h2>
+<p>The export table is thankfully much simpler to extract. We can save the name of each export to a regular string array, unlike imports, where each imported function is linked to a module.</p>
+<p>First, we have to get the export directory. The <code>IMAGE_DIRECTORY_ENTRY_EXPORT</code> macro is the index of the export directory table. The <code>PIMAGE_EXPORT_DIRECTORY</code> is the struct provided by Microsoft that&rsquo;s used to extract the <a href="https://learn.microsoft.com/en-us/windows/win32/debug/pe-format#export-directory-table">export directory fields</a>.</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-c" data-lang="c"><span style="display:flex;"><span>ExportDirectory <span style="color:#f92672">=</span> pNtHeaders<span style="color:#f92672">-&gt;</span>OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_EXPORT];
+</span></span><span style="display:flex;"><span>PIMAGE_EXPORT_DIRECTORY pImageExportData <span style="color:#f92672">=</span> (PIMAGE_EXPORT_DIRECTORY)(<span style="color:#a6e22e">RvaToRaw</span>(pCtx, ExportDirectory.VirtualAddress));
+</span></span></code></pre></div><h3 id="extracting-export-information">Extracting Export Information</h3>
+<p>Once again, we should check if there are any exports at all, which we could confirm by testing if <code>pImageExportData</code> is NULL. Once confirmed, we need to get the name pointer table, which is an RVA to an array of RVAs to the export names. Looking at the export directory table fields, and the <code>PIMAGE_EXPORT_DIRECTORY</code> definition, the <code>AddressOfNames</code> field contains this data.</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-c" data-lang="c"><span style="display:flex;"><span><span style="color:#66d9ef">typedef</span> <span style="color:#66d9ef">struct</span> _IMAGE_EXPORT_DIRECTORY {
+</span></span><span style="display:flex;"><span>    DWORD   Characteristics;
+</span></span><span style="display:flex;"><span>    DWORD   TimeDateStamp;
+</span></span><span style="display:flex;"><span>    WORD    MajorVersion;
+</span></span><span style="display:flex;"><span>    WORD    MinorVersion;
+</span></span><span style="display:flex;"><span>    DWORD   Name;
+</span></span><span style="display:flex;"><span>    DWORD   Base;
+</span></span><span style="display:flex;"><span>    DWORD   NumberOfFunctions;
+</span></span><span style="display:flex;"><span>    DWORD   NumberOfNames;
+</span></span><span style="display:flex;"><span>    DWORD   AddressOfFunctions;     <span style="color:#75715e">// RVA from base of image
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    DWORD   AddressOfNames;         <span style="color:#75715e">// RVA from base of image
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    DWORD   AddressOfNameOrdinals;  <span style="color:#75715e">// RVA from base of image
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>} IMAGE_EXPORT_DIRECTORY, <span style="color:#f92672">*</span>PIMAGE_EXPORT_DIRECTORY;
+</span></span></code></pre></div><p>Since this is just a regular array, we just need to convert each item into a raw pointer, and add it to our context structure. I chose to use a field called <code>ExportList</code> that is a fixed-size array of strings.</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-c" data-lang="c"><span style="display:flex;"><span><span style="color:#66d9ef">if</span> (pImageExportData)
+</span></span><span style="display:flex;"><span>{
+</span></span><span style="display:flex;"><span>	DWORD<span style="color:#f92672">*</span> pNameTable <span style="color:#f92672">=</span> <span style="color:#a6e22e">RvaToRaw</span>(pCtx, pImageExportData<span style="color:#f92672">-&gt;</span>AddressOfNames);
+</span></span><span style="display:flex;"><span>	<span style="color:#66d9ef">for</span> (<span style="color:#66d9ef">int</span> i <span style="color:#f92672">=</span> <span style="color:#ae81ff">0</span>; i <span style="color:#f92672">&lt;</span> pImageExportData<span style="color:#f92672">-&gt;</span>NumberOfNames; i<span style="color:#f92672">++</span>)
+</span></span><span style="display:flex;"><span>	{
+</span></span><span style="display:flex;"><span>		<span style="color:#66d9ef">if</span> (ExportCount <span style="color:#f92672">&lt;=</span> PE_MAXIMUM_EXPORTS)
+</span></span><span style="display:flex;"><span>			pCtx<span style="color:#f92672">-&gt;</span>ExportList[i] <span style="color:#f92672">=</span> <span style="color:#a6e22e">RvaToRaw</span>(pCtx, pNameTable[i]);
+</span></span><span style="display:flex;"><span>		ExportCount<span style="color:#f92672">++</span>;
+</span></span><span style="display:flex;"><span>	}
+</span></span><span style="display:flex;"><span>	pCtx<span style="color:#f92672">-&gt;</span>ExportCount <span style="color:#f92672">=</span> ExportCount;
+</span></span><span style="display:flex;"><span>}
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">return</span> PE_SUCCESS;
+</span></span></code></pre></div><h2 id="results">Results</h2>
+<p>Here&rsquo;s the output from running the tool on a DLL and EXE on my system.</p>
+<p>DLL:</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>Name:                   api-ms-win-core-file-l1-2-0.dll
+</span></span><span style="display:flex;"><span>Is 64-bit:              1
+</span></span><span style="display:flex;"><span>Compile time (epoch):   -239993235
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>Sections (2)
+</span></span><span style="display:flex;"><span>========
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>Name: .rdata
+</span></span><span style="display:flex;"><span>Size: 1024 bytes
+</span></span><span style="display:flex;"><span>RVA: 1000
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>Name: .rsrc
+</span></span><span style="display:flex;"><span>Size: 1024 bytes
+</span></span><span style="display:flex;"><span>RVA: 2000
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>Exports (4)
+</span></span><span style="display:flex;"><span>=======
+</span></span><span style="display:flex;"><span>* CreateFile2
+</span></span><span style="display:flex;"><span>* GetTempPathW
+</span></span><span style="display:flex;"><span>* GetVolumeNameForVolumeMountPointW
+</span></span><span style="display:flex;"><span>* GetVolumePathNamesForVolumeNameW
+</span></span></code></pre></div><p>EXE:</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-text" data-lang="text"><span style="display:flex;"><span>Name:                   C:\msys64\clang32.exe
+</span></span><span style="display:flex;"><span>Is 64-bit:              1
+</span></span><span style="display:flex;"><span>Compile time (epoch):   0
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>Sections (11)
+</span></span><span style="display:flex;"><span>========
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>Name: .text
+</span></span><span style="display:flex;"><span>Size: 30720 bytes
+</span></span><span style="display:flex;"><span>RVA: 1000
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>Name: .data
+</span></span><span style="display:flex;"><span>Size: 512 bytes
+</span></span><span style="display:flex;"><span>RVA: 9000
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>Name: .rdata
+</span></span><span style="display:flex;"><span>Size: 5120 bytes
+</span></span><span style="display:flex;"><span>RVA: a000
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>Name: .pdata
+</span></span><span style="display:flex;"><span>Size: 1536 bytes
+</span></span><span style="display:flex;"><span>RVA: c000
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>Name: .xdata
+</span></span><span style="display:flex;"><span>Size: 1536 bytes
+</span></span><span style="display:flex;"><span>RVA: d000
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>Name: .bss
+</span></span><span style="display:flex;"><span>Size: 0 bytes
+</span></span><span style="display:flex;"><span>RVA: e000
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>Name: .idata
+</span></span><span style="display:flex;"><span>Size: 2560 bytes
+</span></span><span style="display:flex;"><span>RVA: f000
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>Name: .CRT
+</span></span><span style="display:flex;"><span>Size: 512 bytes
+</span></span><span style="display:flex;"><span>RVA: 10000
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>Name: .tls
+</span></span><span style="display:flex;"><span>Size: 512 bytes
+</span></span><span style="display:flex;"><span>RVA: 11000
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>Name: .rsrc
+</span></span><span style="display:flex;"><span>Size: 32768 bytes
+</span></span><span style="display:flex;"><span>RVA: 12000
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>Name: .reloc
+</span></span><span style="display:flex;"><span>Size: 512 bytes
+</span></span><span style="display:flex;"><span>RVA: 1a000
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>Imports (21)
+</span></span><span style="display:flex;"><span>=======
+</span></span><span style="display:flex;"><span>Library name: KERNEL32.dll
+</span></span><span style="display:flex;"><span>        * CreateProcessW
+</span></span><span style="display:flex;"><span>        * DeleteCriticalSection
+</span></span><span style="display:flex;"><span>        * EnterCriticalSection
+</span></span><span style="display:flex;"><span>        * ExpandEnvironmentStringsW
+</span></span><span style="display:flex;"><span>        * FormatMessageW
+</span></span><span style="display:flex;"><span>        * GetCommandLineW
+</span></span><span style="display:flex;"><span>        * GetLastError
+</span></span><span style="display:flex;"><span>        * GetModuleFileNameW
+</span></span><span style="display:flex;"><span>        * GetStartupInfoW
+</span></span><span style="display:flex;"><span>        * InitializeCriticalSection
+</span></span><span style="display:flex;"><span>        * IsDBCSLeadByteEx
+</span></span><span style="display:flex;"><span>        * LeaveCriticalSection
+</span></span><span style="display:flex;"><span>        * LocalFree
+</span></span><span style="display:flex;"><span>        * MultiByteToWideChar
+</span></span><span style="display:flex;"><span>        * SetEnvironmentVariableW
+</span></span><span style="display:flex;"><span>        * SetLastError
+</span></span><span style="display:flex;"><span>        * SetUnhandledExceptionFilter
+</span></span><span style="display:flex;"><span>        * Sleep
+</span></span><span style="display:flex;"><span>        * TlsGetValue
+</span></span><span style="display:flex;"><span>        * VirtualProtect
+</span></span><span style="display:flex;"><span>        * VirtualQuery
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>Library name: msvcrt.dll
+</span></span><span style="display:flex;"><span>        * __C_specific_handler
+</span></span><span style="display:flex;"><span>        * ___lc_codepage_func
+</span></span><span style="display:flex;"><span>        * ___mb_cur_max_func
+</span></span><span style="display:flex;"><span>        * __iob_func
+</span></span><span style="display:flex;"><span>        * __lconv_init
+</span></span><span style="display:flex;"><span>        * __set_app_type
+</span></span><span style="display:flex;"><span>        * __setusermatherr
+</span></span><span style="display:flex;"><span>        * __wgetmainargs
+</span></span><span style="display:flex;"><span>        * __winitenv
+</span></span><span style="display:flex;"><span>        * _amsg_exit
+</span></span><span style="display:flex;"><span>        * _cexit
+</span></span><span style="display:flex;"><span>        * _commode
+</span></span><span style="display:flex;"><span>        * _errno
+</span></span><span style="display:flex;"><span>        * _fmode
+</span></span><span style="display:flex;"><span>        * _initterm
+</span></span><span style="display:flex;"><span>        * _onexit
+</span></span><span style="display:flex;"><span>        * fwprintf
+</span></span><span style="display:flex;"><span>        * _wcmdln
+</span></span><span style="display:flex;"><span>        * _wcsdup
+</span></span><span style="display:flex;"><span>        * _wcserror
+</span></span><span style="display:flex;"><span>        * _wcsicmp
+</span></span><span style="display:flex;"><span>        * _wfopen
+</span></span><span style="display:flex;"><span>        * abort
+</span></span><span style="display:flex;"><span>        * calloc
+</span></span><span style="display:flex;"><span>        * exit
+</span></span><span style="display:flex;"><span>        * fclose
+</span></span><span style="display:flex;"><span>        * feof
+</span></span><span style="display:flex;"><span>        * fgetws
+</span></span><span style="display:flex;"><span>        * fprintf
+</span></span><span style="display:flex;"><span>        * fputwc
+</span></span><span style="display:flex;"><span>        * free
+</span></span><span style="display:flex;"><span>        * fwrite
+</span></span><span style="display:flex;"><span>        * localeconv
+</span></span><span style="display:flex;"><span>        * malloc
+</span></span><span style="display:flex;"><span>        * memcpy
+</span></span><span style="display:flex;"><span>        * memset
+</span></span><span style="display:flex;"><span>        * realloc
+</span></span><span style="display:flex;"><span>        * signal
+</span></span><span style="display:flex;"><span>        * strerror
+</span></span><span style="display:flex;"><span>        * strlen
+</span></span><span style="display:flex;"><span>        * strncmp
+</span></span><span style="display:flex;"><span>        * vfprintf
+</span></span><span style="display:flex;"><span>        * wcschr
+</span></span><span style="display:flex;"><span>        * wcscmp
+</span></span><span style="display:flex;"><span>        * wcscpy
+</span></span><span style="display:flex;"><span>        * wcslen
+</span></span><span style="display:flex;"><span>        * wcsrchr
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>Library name: USER32.dll
+</span></span><span style="display:flex;"><span>        * MessageBoxW
+</span></span></code></pre></div><h2 id="references">References</h2>
+<ul>
+<li><code>winnt.h</code> (Visual Studio)</li>
+<li><a href="https://learn.microsoft.com/en-us/windows/win32/debug/pe-format">https://learn.microsoft.com/en-us/windows/win32/debug/pe-format</a></li>
+</ul>
+<p>The full code can be found <a href="">here</a> on GitHub.</p>
+
+		</section>
+
+		<div class="post-tags">
+			
+			
+			<nav class="nav tags">
+				<ul class="tags">
+					
+					<li><a href="/tags/malware-analysis">Malware Analysis</a></li>
+					
+					<li><a href="/tags/malware-development">Malware Development</a></li>
+					
+				</ul>
+			</nav>
+			
+			
+		</div>
+		<div id="disqus_thread"></div>
+<script type="text/javascript">
+    (function () {
+        
+        
+        if (window.location.hostname == "localhost")
+            return;
+
+        var dsq = document.createElement('script');
+        dsq.type = 'text/javascript';
+        dsq.async = true;
+        var disqus_shortname = 'pygrum-security';
+        dsq.src = '//' + disqus_shortname + '.disqus.com/embed.js';
+        (document.getElementsByTagName('head')[0] || document.getElementsByTagName('body')[0]).appendChild(dsq);
+    })();
+</script>
+<noscript>Please enable JavaScript to view the <a href="http://disqus.com/?ref_noscript">comments powered by
+        Disqus.</a></noscript>
+<a href="http://disqus.com/" class="dsq-brlink">comments powered by <span class="logo-disqus">Disqus</span></a></article>
+</main>
+<footer>
+  <div style="display:flex"><a class="soc" href="https://github.com/pygrum" rel="me" title="GitHub"><i data-feather="github"></i></a>
+    <a class="border"></a><a class="soc" href="https://twitter.com/pygrumsec" rel="me" title="Twitter"><i data-feather="twitter"></i></a>
+    <a class="border"></a></div>
+  <div class="footer-info">
+    2024  © Pygrum  
+</footer>
+
+
+<script>
+  feather.replace()
+</script></div>
+    </body>
+</html>
