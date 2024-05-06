@@ -326,7 +326,7 @@ Name: .reloc
 Size: 512 bytes
 RVA: 1a000
 
-Imports (21)
+Imports
 =======
 Library name: KERNEL32.dll
         * CreateProcessW
