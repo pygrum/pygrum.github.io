@@ -409,4 +409,4 @@ Library name: USER32.dll
 - `winnt.h` (Visual Studio)
 - https://learn.microsoft.com/en-us/windows/win32/debug/pe-format
 
-The full code can be found [here]() on GitHub.
+The full code can be found [here](https://github.com/pygrum/WindowsPE#importexport) on GitHub.
